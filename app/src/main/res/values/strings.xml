@@ -1,0 +1,15 @@
+<resources>
+    <string name="app_name">Clock + Todo</string>
+    <string name="empty_todo_message">真是悠闲的一天，去喝杯茶吧~</string>
+    <string name="add_todo">添加待办</string>
+    <string name="new_todo">新建待办</string>
+    <string name="save">保存</string>
+    <string name="cancel">取消</string>
+    <string name="discard_changes_title">是否放弃更改？</string>
+    <string name="discard_changes_message">您有未保存的内容，确定要放弃吗？</string>
+    <string name="discard">放弃</string>
+    <string name="continue_editing">继续编辑</string>
+    <string name="todo_completed">已完成一项待办</string>
+    <string name="enter_todo_hint">输入待办事项...</string>
+    <string name="change_background">更换背景</string>
+</resources>
