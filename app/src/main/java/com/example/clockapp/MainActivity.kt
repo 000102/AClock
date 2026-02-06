@@ -61,6 +61,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -95,6 +99,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.view.WindowCompat
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
@@ -113,6 +118,8 @@ import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import coil.compose.rememberAsyncImagePainter
+import com.skydoves.cloudy.CloudyState
+import com.skydoves.cloudy.cloudy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -128,6 +135,8 @@ import java.util.Date
 import java.util.Locale
 import kotlin.math.absoluteValue
 import kotlin.math.roundToInt
+import android.os.Build
+import androidx.compose.foundation.isSystemInDarkTheme
 
 // ==================== DataStore 扩展 ====================
 val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
@@ -315,6 +324,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
     
+    // 修改：切换星标状态（可取消）
     fun toggleStar(id: Long, currentStarred: Boolean) {
         viewModelScope.launch(Dispatchers.IO) {
             todoDao.setStarred(id, !currentStarred)
@@ -359,6 +369,55 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 }
 
+// ==================== 主题配置 ====================
+private val DarkColorScheme = darkColorScheme(
+    primary = Color(0xFFBB86FC),
+    secondary = Color(0xFF03DAC6),
+    tertiary = Color(0xFFCF6679),
+    background = Color(0xFF121212),
+    surface = Color(0xFF1E1E1E),
+    onPrimary = Color.Black,
+    onSecondary = Color.Black,
+    onTertiary = Color.Black,
+    onBackground = Color.White,
+    onSurface = Color.White,
+)
+
+private val LightColorScheme = lightColorScheme(
+    primary = Color(0xFF6200EE),
+    secondary = Color(0xFF03DAC6),
+    tertiary = Color(0xFFB00020),
+    background = Color(0xFFFFFFFF),
+    surface = Color(0xFFF5F5F5),
+    onPrimary = Color.White,
+    onSecondary = Color.Black,
+    onTertiary = Color.White,
+    onBackground = Color.Black,
+    onSurface = Color.Black,
+)
+
+@Composable
+fun ClockTodoTheme(
+    darkTheme: Boolean = isSystemInDarkTheme(),
+    dynamicColor: Boolean = true,
+    content: @Composable () -> Unit
+) {
+    val colorScheme = when {
+        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+            val context = LocalContext.current
+            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+        }
+        darkTheme -> DarkColorScheme
+        else -> LightColorScheme
+    }
+
+    MaterialTheme(
+        colorScheme = colorScheme,
+        typography = Typography,
+        content = content
+    )
+}
+
 // ==================== MainActivity ====================
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -367,13 +426,15 @@ class MainActivity : ComponentActivity() {
         setupFullScreen()
         
         setContent {
-            MaterialTheme {
+            ClockTodoTheme {
                 ClockTodoApp()
             }
         }
     }
     
     private fun setupFullScreen() {
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        
         window.setFlags(
             WindowManager.LayoutParams.FLAG_FULLSCREEN,
             WindowManager.LayoutParams.FLAG_FULLSCREEN
@@ -389,8 +450,10 @@ class MainActivity : ComponentActivity() {
             or View.SYSTEM_UI_FLAG_LOW_PROFILE
         )
         
-        window.attributes.layoutInDisplayCutoutMode = 
-            WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            window.attributes.layoutInDisplayCutoutMode = 
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        }
     }
     
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -538,7 +601,7 @@ fun BackgroundImage(uri: Uri?) {
 }
 
 /**
- * 时钟显示区域 - iPhone 风格半透明字体
+ * 时钟显示区域 - 使用 Cloudy 实现真正的毛玻璃模糊效果（支持 Android 11）
  */
 @Composable
 fun ClockSection(
@@ -554,18 +617,20 @@ fun ClockSection(
             .padding(32.dp),
         contentAlignment = Alignment.Center
     ) {
-        FrostedGlassContainer(
+        // 使用 Cloudy 实现真正的毛玻璃效果
+        CloudyFrostedGlassContainer(
             modifier = Modifier
                 .fillMaxWidth(0.9f)
                 .fillMaxHeight(0.7f),
-            cornerRadius = 24.dp
+            cornerRadius = 24.dp,
+            blurRadius = 25
         ) {
             Column(
                 modifier = Modifier.fillMaxSize(),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                // 日期 - iPhone 风格半透明
+                // 日期
                 Text(
                     text = dateFormat.format(Date(currentTime)),
                     style = MaterialTheme.typography.headlineSmall,
@@ -575,7 +640,7 @@ fun ClockSection(
                 
                 Spacer(modifier = Modifier.height(24.dp))
                 
-                // 时间 - iPhone 风格：半透明但清晰
+                // 时间
                 Text(
                     text = timeFormat.format(Date(currentTime)),
                     style = TextStyle(
@@ -591,43 +656,77 @@ fun ClockSection(
 }
 
 /**
- * 毛玻璃容器 - 真正的模糊效果
+ * 使用 Cloudy 的毛玻璃容器 - 支持 Android 11 及以下
  */
 @Composable
-fun FrostedGlassContainer(
+fun CloudyFrostedGlassContainer(
     modifier: Modifier = Modifier,
     cornerRadius: Dp = 16.dp,
+    blurRadius: Int = 25,
     content: @Composable () -> Unit
 ) {
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(cornerRadius))
-            .background(Color.White.copy(alpha = 0.08f))
-            .graphicsLayer {
-                alpha = 0.95f
-            }
-            .drawWithContent {
-                drawContent()
-                
-                drawRect(
-                    color = Color.White.copy(alpha = 0.15f),
-                    topLeft = Offset(0f, 0f),
-                    size = androidx.compose.ui.geometry.Size(size.width, 1f)
-                )
-                
-                drawRect(
-                    color = Color.White.copy(alpha = 0.1f),
-                    topLeft = Offset(0f, 0f),
-                    size = androidx.compose.ui.geometry.Size(1f, size.height)
-                )
-            }
     ) {
-        content()
+        // 使用 Cloudy 实现模糊效果
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.White.copy(alpha = 0.08f))
+                .cloudy(
+                    radius = blurRadius,
+                    key1 = Unit // 用于触发重新模糊
+                )
+        )
+        
+        // 边框和光泽效果
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .drawWithContent {
+                    drawContent()
+                    
+                    // 顶部高光
+                    drawRect(
+                        color = Color.White.copy(alpha = 0.2f),
+                        topLeft = Offset(0f, 0f),
+                        size = androidx.compose.ui.geometry.Size(size.width, 1f)
+                    )
+                    
+                    // 左侧高光
+                    drawRect(
+                        color = Color.White.copy(alpha = 0.1f),
+                        topLeft = Offset(0f, 0f),
+                        size = androidx.compose.ui.geometry.Size(1f, size.height)
+                    )
+                    
+                    // 边框
+                    drawRoundRect(
+                        color = Color.White.copy(alpha = 0.15f),
+                        topLeft = Offset(0f, 0f),
+                        size = androidx.compose.ui.geometry.Size(size.width, size.height),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(
+                            cornerRadius.toPx(),
+                            cornerRadius.toPx()
+                        ),
+                        style = Stroke(width = 1f)
+                    )
+                }
+        )
+        
+        // 内容层
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            content()
+        }
     }
 }
 
 /**
- * 待办事项区域 - 带边框的毛玻璃效果
+ * 待办事项区域
  */
 @Composable
 fun TodoSection(
@@ -642,9 +741,10 @@ fun TodoSection(
             .fillMaxSize()
             .padding(16.dp)
     ) {
-        FrostedGlassContainerWithBorder(
+        CloudyFrostedGlassContainer(
             modifier = Modifier.fillMaxSize(),
-            cornerRadius = 20.dp
+            cornerRadius = 20.dp,
+            blurRadius = 20
         ) {
             Column(
                 modifier = Modifier
@@ -691,51 +791,6 @@ fun TodoSection(
     }
 }
 
-/**
- * 带边框的毛玻璃容器
- */
-@Composable
-fun FrostedGlassContainerWithBorder(
-    modifier: Modifier = Modifier,
-    cornerRadius: Dp = 16.dp,
-    content: @Composable () -> Unit
-) {
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(cornerRadius))
-            .background(Color.White.copy(alpha = 0.1f))
-            .drawWithContent {
-                val path = Path().apply {
-                    addRoundRect(
-                        RoundRect(
-                            rect = Rect(0f, 0f, size.width, size.height),
-                            cornerRadius = GeometryCornerRadius(
-                                cornerRadius.toPx(),
-                                cornerRadius.toPx()
-                            )
-                        )
-                    )
-                }
-                
-                drawContent()
-                
-                drawPath(
-                    path = path,
-                    color = Color.White.copy(alpha = 0.25f),
-                    style = Stroke(width = 1.5f)
-                )
-                
-                drawRect(
-                    color = Color.White.copy(alpha = 0.2f),
-                    topLeft = Offset(0f, 0f),
-                    size = androidx.compose.ui.geometry.Size(size.width, 1f)
-                )
-            }
-    ) {
-        content()
-    }
-}
-
 @Composable
 fun EmptyTodoState(modifier: Modifier = Modifier) {
     Box(
@@ -753,7 +808,7 @@ fun EmptyTodoState(modifier: Modifier = Modifier) {
 }
 
 /**
- * 自定义滑动待办列表
+ * 自定义滑动待办列表 - 支持取消星标
  */
 @Composable
 fun TodoListWithSwipe(
@@ -780,9 +835,7 @@ fun TodoListWithSwipe(
 }
 
 /**
- * 可滑动的待办项
- * 左滑：黄色实心☆（收藏/强调）- 保留状态
- * 右滑：黄色圆形 + 白色对勾（完成）
+ * 可滑动的待办项 - 左滑切换星标（可取消），右滑完成
  */
 @Composable
 fun SwipeableTodoItem(
@@ -808,9 +861,10 @@ fun SwipeableTodoItem(
     ) {
         // 背景层 - 根据滑动方向显示不同图标
         if (animatedOffsetX > 0) {
-            // 左滑背景 - 黄色实心☆，无底色
+            // 左滑背景 - 黄色实心☆（切换收藏状态）
             StarBackground(
                 progress = (animatedOffsetX / swipeThreshold).coerceIn(0f, 1f),
+                isStarred = todo.isStarred, // 传递当前状态
                 modifier = Modifier.fillMaxSize()
             )
         } else if (animatedOffsetX < 0) {
@@ -832,7 +886,7 @@ fun SwipeableTodoItem(
                         onDragEnd = {
                             when {
                                 offsetX > swipeThreshold -> {
-                                    // 左滑超过阈值 - 切换收藏状态
+                                    // 左滑超过阈值 - 切换收藏状态（可取消）
                                     onStar()
                                     offsetX = 0f
                                 }
@@ -860,11 +914,12 @@ fun SwipeableTodoItem(
 }
 
 /**
- * 左滑背景 - 黄色实心☆，扁平化，无底色
+ * 左滑背景 - 根据是否已收藏显示不同图标
  */
 @Composable
 fun StarBackground(
     progress: Float,
+    isStarred: Boolean,
     modifier: Modifier = Modifier
 ) {
     Box(
@@ -876,38 +931,60 @@ fun StarBackground(
             enter = fadeIn(),
             exit = fadeOut()
         ) {
-            Box(
-                modifier = Modifier
-                    .padding(start = 24.dp)
-                    .size(40.dp * progress.coerceIn(0.5f, 1f)),
-                contentAlignment = Alignment.Center
+            Row(
+                modifier = Modifier.padding(start = 24.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                // 绘制实心黄色五角星
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    val centerX = size.width / 2
-                    val centerY = size.height / 2
-                    val outerRadius = size.width / 2
-                    val innerRadius = outerRadius * 0.4f
-                    
-                    val path = Path()
-                    for (i in 0 until 10) {
-                        val angle = kotlin.math.PI / 2 + i * kotlin.math.PI / 5
-                        val radius = if (i % 2 == 0) outerRadius else innerRadius
-                        val x = centerX + (kotlin.math.cos(angle) * radius).toFloat()
-                        val y = centerY - (kotlin.math.sin(angle) * radius).toFloat()
-                        if (i == 0) {
-                            path.moveTo(x, y)
-                        } else {
-                            path.lineTo(x, y)
+                Box(
+                    modifier = Modifier.size(40.dp * progress.coerceIn(0.5f, 1f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (isStarred) {
+                        // 已收藏状态 - 显示空心星或减号，表示可以取消
+                        Icon(
+                            imageVector = Icons.Default.Star,
+                            contentDescription = "取消收藏",
+                            tint = Color(0xFFFFB800).copy(alpha = progress),
+                            modifier = Modifier.size(32.dp)
+                        )
+                    } else {
+                        // 未收藏状态 - 显示实心星，表示可以添加
+                        Canvas(modifier = Modifier.fillMaxSize()) {
+                            val centerX = size.width / 2
+                            val centerY = size.height / 2
+                            val outerRadius = size.width / 2
+                            val innerRadius = outerRadius * 0.4f
+                            
+                            val path = Path()
+                            for (i in 0 until 10) {
+                                val angle = kotlin.math.PI / 2 + i * kotlin.math.PI / 5
+                                val radius = if (i % 2 == 0) outerRadius else innerRadius
+                                val x = centerX + (kotlin.math.cos(angle) * radius).toFloat()
+                                val y = centerY - (kotlin.math.sin(angle) * radius).toFloat()
+                                if (i == 0) {
+                                    path.moveTo(x, y)
+                                } else {
+                                    path.lineTo(x, y)
+                                }
+                            }
+                            path.close()
+                            
+                            drawPath(
+                                path = path,
+                                color = Color(0xFFFFB800).copy(alpha = progress)
+                            )
                         }
                     }
-                    path.close()
-                    
-                    drawPath(
-                        path = path,
-                        color = Color(0xFFFFB800)
-                    )
                 }
+                
+                Spacer(modifier = Modifier.width(8.dp))
+                
+                Text(
+                    text = if (isStarred) "取消标记" else "标记重点",
+                    color = Color(0xFFFFB800).copy(alpha = progress),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium
+                )
             }
         }
     }
@@ -930,20 +1007,33 @@ fun CheckBackground(
             enter = fadeIn(),
             exit = fadeOut()
         ) {
-            Box(
-                modifier = Modifier
-                    .padding(end = 24.dp)
-                    .size(44.dp * progress.coerceIn(0.5f, 1f))
-                    .clip(CircleShape)
-                    .background(Color(0xFFFFB800)),
-                contentAlignment = Alignment.Center
+            Row(
+                modifier = Modifier.padding(end = 24.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = Icons.Default.Check,
-                    contentDescription = "完成",
-                    tint = Color.White,
-                    modifier = Modifier.size(24.dp)
+                Text(
+                    text = "完成",
+                    color = Color(0xFFFFB800).copy(alpha = progress),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium
                 )
+                
+                Spacer(modifier = Modifier.width(8.dp))
+                
+                Box(
+                    modifier = Modifier
+                        .size(44.dp * progress.coerceIn(0.5f, 1f))
+                        .clip(CircleShape)
+                        .background(Color(0xFFFFB800)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = "完成",
+                        tint = Color.White,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
             }
         }
     }
@@ -1020,7 +1110,7 @@ fun TodoItemCardWithStar(
 }
 
 /**
- * 添加待办底部弹窗
+ * 添加待办底部弹窗 - 适配暗色/亮色主题
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1035,6 +1125,7 @@ fun AddTodoBottomSheet(
         skipPartiallyExpanded = true
     )
     val scope = rememberCoroutineScope()
+    val colorScheme = MaterialTheme.colorScheme
     
     BackHandler {
         if (inputText.isNotBlank()) {
@@ -1056,7 +1147,8 @@ fun AddTodoBottomSheet(
             }
         },
         sheetState = sheetState,
-        containerColor = MaterialTheme.colorScheme.surface
+        containerColor = colorScheme.surface, // 使用主题色
+        contentColor = colorScheme.onSurface
     ) {
         Column(
             modifier = Modifier
@@ -1071,7 +1163,8 @@ fun AddTodoBottomSheet(
                 Text(
                     text = "新建待办",
                     style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    color = colorScheme.onSurface // 使用主题色
                 )
                 
                 IconButton(
@@ -1088,7 +1181,8 @@ fun AddTodoBottomSheet(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Close,
-                        contentDescription = "关闭"
+                        contentDescription = "关闭",
+                        tint = colorScheme.onSurface // 使用主题色
                     )
                 }
             }
@@ -1098,7 +1192,7 @@ fun AddTodoBottomSheet(
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant
+                color = colorScheme.surfaceVariant // 使用主题色
             ) {
                 BasicTextField(
                     value = inputText,
@@ -1107,14 +1201,14 @@ fun AddTodoBottomSheet(
                         .fillMaxWidth()
                         .padding(16.dp),
                     textStyle = MaterialTheme.typography.bodyLarge.copy(
-                        color = MaterialTheme.colorScheme.onSurface
+                        color = colorScheme.onSurface // 使用主题色
                     ),
                     decorationBox = { innerTextField ->
                         if (inputText.isEmpty()) {
                             Text(
                                 text = "输入待办事项...",
                                 style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = colorScheme.onSurfaceVariant // 使用主题色
                             )
                         }
                         innerTextField()
@@ -1140,7 +1234,7 @@ fun AddTodoBottomSheet(
                         }
                     }
                 ) {
-                    Text("取消")
+                    Text("取消", color = colorScheme.primary) // 使用主题色
                 }
                 
                 Spacer(modifier = Modifier.width(8.dp))
@@ -1152,7 +1246,11 @@ fun AddTodoBottomSheet(
                             onSave()
                         }
                     },
-                    enabled = inputText.isNotBlank()
+                    enabled = inputText.isNotBlank(),
+                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                        containerColor = colorScheme.primary, // 使用主题色
+                        contentColor = colorScheme.onPrimary
+                    )
                 ) {
                     Text("保存")
                 }
@@ -1168,29 +1266,41 @@ fun DiscardChangesDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    val colorScheme = MaterialTheme.colorScheme
+    
     AlertDialog(
         onDismissRequest = onDismiss,
+        containerColor = colorScheme.surface, // 使用主题色
         title = {
             Text(
                 text = "是否放弃更改？",
-                style = MaterialTheme.typography.headlineSmall
+                style = MaterialTheme.typography.headlineSmall,
+                color = colorScheme.onSurface
             )
         },
         text = {
-            Text("您有未保存的内容，确定要放弃吗？")
+            Text(
+                "您有未保存的内容，确定要放弃吗？",
+                color = colorScheme.onSurfaceVariant
+            )
         },
         confirmButton = {
             TextButton(
                 onClick = onConfirm,
                 colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
-                    contentColor = MaterialTheme.colorScheme.error
+                    contentColor = colorScheme.error // 使用主题错误色
                 )
             ) {
                 Text("放弃")
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(
+                onClick = onDismiss,
+                colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
+                    contentColor = colorScheme.primary
+                )
+            ) {
                 Text("继续编辑")
             }
         }
