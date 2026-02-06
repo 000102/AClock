@@ -56,6 +56,7 @@ dependencies {
     androidTestImplementation(composeBom)
 
     // Core Compose
+    implementation("com.github.skydoves:cloudy:0.5.0")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
