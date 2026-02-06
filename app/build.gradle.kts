@@ -6,12 +6,12 @@ plugins {
 
 android {
     namespace = "com.example.clockapp"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.example.clockapp"
         minSdk = 30  // Android 11 (API 30)
-        targetSdk = 35
+        targetSdk = 36
         versionCode = 1
         versionName = "1.0"
 
