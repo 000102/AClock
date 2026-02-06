@@ -13,8 +13,5 @@
         <item name="android:windowTranslucentStatus">true</item>
         <item name="android:windowTranslucentNavigation">true</item>
         <!-- 系统栏可见性 -->
-        <item name="android:windowSystemUiVisibility">
-            immersive|fullscreen|hide_navigation|lowProfile
-        </item>
     </style>
 </resources>
