@@ -54,7 +54,7 @@ dependencies {
     androidTestImplementation(composeBom)
 
     // Core Compose
-    implementation("com.github.skydoves:cloudy:0.5.0")
+    implementation("com.github.skydoves:cloudy:0.4.4")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
@@ -92,12 +92,4 @@ dependencies {
     // 调试工具
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
-}
-configurations.all {
-   
-resolutionStrategy.eachDependency {
-        if (requested.group == "org.jetbrains.kotlin") {
-            useVersion("2.1.10")
-        }
-    }
 }
