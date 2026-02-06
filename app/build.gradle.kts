@@ -78,7 +78,7 @@ dependencies {
     implementation("androidx.navigation:navigation-compose:2.7.5")
     
     // Room 数据库
-    val roomVersion = "2.6.1"
+    val roomVersion = "2.7.0"
     implementation("androidx.room:room-runtime:$roomVersion")
     implementation("androidx.room:room-ktx:$roomVersion")
     ksp("androidx.room:room-compiler:$roomVersion")
