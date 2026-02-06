@@ -21,43 +21,47 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
-          # 关键：禁用 Gradle 缓存，避免问题
           cache: gradle
+      
+      # 关键调试：检查 gradlew 文件
+      - name: Check gradlew file
+        run: |
+          echo "=== 当前目录 ==="
+          pwd && ls -la
+          
+          echo "=== 检查 gradlew ==="
+          ls -la gradlew || echo "❌ gradlew 不存在"
+          file gradlew || echo "❌ 无法识别文件类型"
+          head -5 gradlew || echo "❌ 无法读取文件内容"
+          
+          echo "=== 检查 gradle/wrapper ==="
+          ls -la gradle/wrapper/ || echo "❌ wrapper 目录不存在"
       
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
       
-      # 关键修复：强制清理并重新构建
-      - name: Clean and Build Debug APK
+      # 关键修复：确保使用 bash 并检查命令执行
+      - name: Build Debug APK
+        shell: bash
         run: |
-          echo "=== 停止守护进程 ==="
-          ./gradlew --stop 2>/dev/null || true
+          set -x  # 显示执行的每一条命令
+          echo "=== 开始构建 ==="
           
-          echo "=== 清理构建 ==="
-          ./gradlew clean --no-daemon
-          
-          echo "=== 开始构建（强制重新执行所有任务）==="
-          ./gradlew assembleDebug \
-            --no-daemon \
-            --rerun-tasks \
-            --stacktrace
-        timeout-minutes: 20
-      
-      # 验证构建结果
-      - name: Verify APK
-        run: |
-          echo "=== 查找所有 APK ==="
-          find . -name "*.apk" -type f 2>/dev/null
-          
-          echo "=== 检查构建目录 ==="
-          if [ -d "app/build/outputs/apk/debug" ]; then
-            echo "✓ 目录存在"
-            ls -lh app/build/outputs/apk/debug/
-          else
-            echo "✗ 目录不存在"
-            ls -R app/build/ 2>/dev/null || echo "app/build 不存在"
+          # 检查 gradlew 是否可执行
+          if [ ! -x "./gradlew" ]; then
+            echo "❌ gradlew 不可执行"
             exit 1
           fi
+          
+          # 执行构建并捕获输出
+          ./gradlew --version
+          ./gradlew clean assembleDebug --stacktrace --info
+        timeout-minutes: 20
+      
+      - name: Verify APK
+        run: |
+          find . -name "*.apk" -type f
+          ls -la app/build/outputs/apk/debug/ 2>/dev/null || echo "目录不存在"
       
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
