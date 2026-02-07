@@ -19,13 +19,13 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
-          # 仅保留这一个官方缓存，它能智能识别你的 build.gradle 变化
+          # 使用 setup-java 内置缓存，它会自动识别 build.gradle 的变化
           cache: gradle
       
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
       
-      # 使用 clean 确保彻底清理掉之前的编译残留
+      # 核心点：先 clean 彻底抹除旧缓存，并跳过单元测试直达 APK 编译
       - name: Build Debug APK
         run: ./gradlew clean assembleDebug --stacktrace
       
