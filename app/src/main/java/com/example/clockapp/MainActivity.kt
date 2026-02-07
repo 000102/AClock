@@ -19,6 +19,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -80,9 +81,8 @@ data class TodoItem(
 @Dao
 interface TodoDao {
     @Query(
-        "SELECT * FROM todos " +
-        "WHERE isCompleted = 0 " +
-        "ORDER BY isStarred DESC, createdAt DESC"
+        "SELECT * FROM todos WHERE isCompleted = 0 " +
+                "ORDER BY isStarred DESC, createdAt DESC"
     )
     fun getAllActiveTodos(): Flow<List<TodoItem>>
 
@@ -108,8 +108,7 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "todo_db"
-                )
-                    .fallbackToDestructiveMigration()
+                ).fallbackToDestructiveMigration()
                     .build()
                     .also { INSTANCE = it }
             }
@@ -242,9 +241,19 @@ fun ClockTodoApp() {
         ActivityResultContracts.OpenDocument()
     ) { it?.let(viewModel::setBackground) }
 
-    Box(Modifier.fillMaxSize()) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onDoubleTap = {
+                        launcher.launch(arrayOf("image/*"))
+                    }
+                )
+            }
+    ) {
 
-        /* 背景 */
+        /* 背景层 */
         Box(Modifier.fillMaxSize().haze(hazeState)) {
             if (bgUri != null) {
                 Image(
@@ -268,21 +277,7 @@ fun ClockTodoApp() {
             }
         }
 
-        IconButton(
-            onClick = { launcher.launch(arrayOf("image/*")) },
-            modifier = Modifier.align(Alignment.TopEnd)
-                .padding(32.dp)
-                .statusBarsPadding()
-        ) {
-            Icon(
-                Icons.Default.Image,
-                null,
-                tint = Color.White.copy(0.5f),
-                modifier = Modifier.size(32.dp)
-            )
-        }
-
-        /* 主布局 */
+        /* 主内容 */
         Row(
             Modifier.fillMaxSize()
                 .padding(32.dp)
@@ -434,21 +429,20 @@ fun ClockTodoApp() {
             }
         }
 
-        /* BottomSheet */
-        if (viewModel.showSheet) {
-            OriginalAddTodoSheet(
-                text = viewModel.inputText,
-                onTextChange = { viewModel.inputText = it },
-                onDismiss = {
-                    if (viewModel.inputText.isNotBlank()) {
-                        viewModel.showDiscardDialog = true
-                    } else {
-                        viewModel.showSheet = false
-                    }
-                },
-                onSave = { viewModel.saveTodo() }
-            )
-        }
+        /* BottomSheet 常驻 */
+        OriginalAddTodoSheet(
+            visible = viewModel.showSheet,
+            text = viewModel.inputText,
+            onTextChange = { viewModel.inputText = it },
+            onDismiss = {
+                if (viewModel.inputText.isNotBlank()) {
+                    viewModel.showDiscardDialog = true
+                } else {
+                    viewModel.showSheet = false
+                }
+            },
+            onSave = { viewModel.saveTodo() }
+        )
 
         /* 放弃确认 */
         if (viewModel.showDiscardDialog) {
@@ -500,52 +494,16 @@ fun OriginalSwipeItem(
 
     Box(Modifier.fillMaxWidth().height(64.dp)) {
 
-        Box(Modifier.fillMaxSize()) {
-            if (offsetX.value > 10f) {
-                Box(
-                    Modifier.align(Alignment.CenterStart)
-                        .padding(start = 20.dp)
-                        .graphicsLayer(
-                            scaleX = iconScale,
-                            scaleY = iconScale
-                        )
-                        .size(40.dp)
-                        .background(
-                            Color(0xFF4CAF50),
-                            CircleShape
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(Icons.Default.Check, null, tint = Color.White)
-                }
-            } else if (offsetX.value < -10f) {
-                Icon(
-                    Icons.Default.Star,
-                    null,
-                    tint = Color(0xFFFFB800),
-                    modifier = Modifier.align(Alignment.CenterEnd)
-                        .padding(end = 20.dp)
-                        .graphicsLayer(
-                            scaleX = iconScale,
-                            scaleY = iconScale
-                        )
-                        .size(32.dp)
-                )
-            }
-        }
-
         Surface(
             modifier = Modifier
                 .offset { IntOffset(offsetX.value.roundToInt(), 0) }
                 .fillMaxSize()
-                .pointerInput(todo.id) {
+                .pointerInput(todo) {
                     detectHorizontalDragGestures(
                         onHorizontalDrag = { change, dragAmount ->
                             change.consume()
                             scope.launch {
-                                offsetX.snapTo(
-                                    offsetX.value + dragAmount
-                                )
+                                offsetX.snapTo(offsetX.value + dragAmount)
                             }
                         },
                         onDragEnd = {
@@ -556,10 +514,7 @@ fun OriginalSwipeItem(
                                 }
                                 offsetX.animateTo(
                                     0f,
-                                    spring(
-                                        dampingRatio =
-                                        Spring.DampingRatioMediumBouncy
-                                    )
+                                    spring(Spring.DampingRatioMediumBouncy)
                                 )
                             }
                         }
@@ -607,70 +562,79 @@ fun OriginalSwipeItem(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OriginalAddTodoSheet(
+    visible: Boolean,
     text: String,
     onTextChange: (String) -> Unit,
     onDismiss: () -> Unit,
     onSave: () -> Unit
 ) {
-    val sheetState =
-        rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val sheetState = rememberModalBottomSheetState(
+        skipPartiallyExpanded = true
+    )
 
-    BackHandler { onDismiss() }
+    LaunchedEffect(visible) {
+        if (visible) sheetState.show()
+        else sheetState.hide()
+    }
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        dragHandle = { BottomSheetDefaults.DragHandle() },
-        containerColor = Color(0xFF1C1C1E)
-    ) {
-        Column(
-            Modifier.padding(24.dp)
-                .padding(bottom = 32.dp)
+    if (sheetState.isVisible) {
+        BackHandler { onDismiss() }
+
+        ModalBottomSheet(
+            onDismissRequest = onDismiss,
+            sheetState = sheetState,
+            dragHandle = { BottomSheetDefaults.DragHandle() },
+            containerColor = Color(0xFF1C1C1E)
         ) {
-            Text(
-                "新建待办事项",
-                style = TextStyle(
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
-            )
-            Spacer(Modifier.height(20.dp))
-            OutlinedTextField(
-                value = text,
-                onValueChange = onTextChange,
-                modifier = Modifier.fillMaxWidth(),
-                textStyle = TextStyle(color = Color.White),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = Color(0xFFFFB800),
-                    unfocusedBorderColor = Color.White.copy(0.3f),
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White
-                ),
-                placeholder = {
-                    Text(
-                        "想做点什么？",
-                        color = Color.White.copy(0.4f)
-                    )
-                }
-            )
-            Spacer(Modifier.height(24.dp))
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End
+            Column(
+                Modifier.padding(24.dp)
+                    .padding(bottom = 32.dp)
             ) {
-                TextButton(onClick = onDismiss) {
-                    Text("取消", color = Color.White.copy(0.6f))
-                }
-                Spacer(Modifier.width(12.dp))
-                Button(
-                    onClick = onSave,
-                    enabled = text.isNotBlank(),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFFFFB800)
+                Text(
+                    "新建待办事项",
+                    style = TextStyle(
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
                     )
+                )
+                Spacer(Modifier.height(20.dp))
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = onTextChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    textStyle = TextStyle(color = Color.White),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Color(0xFFFFB800),
+                        unfocusedBorderColor = Color.White.copy(0.3f),
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    ),
+                    placeholder = {
+                        Text(
+                            "想做点什么？",
+                            color = Color.White.copy(0.4f)
+                        )
+                    }
+                )
+                Spacer(Modifier.height(24.dp))
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
                 ) {
-                    Text("添加", fontWeight = FontWeight.Bold)
+                    TextButton(onClick = onDismiss) {
+                        Text("取消", color = Color.White.copy(0.6f))
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Button(
+                        onClick = onSave,
+                        enabled = text.isNotBlank(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFFFFB800)
+                        )
+                    ) {
+                        Text("添加", fontWeight = FontWeight.Bold)
+                    }
                 }
             }
         }
