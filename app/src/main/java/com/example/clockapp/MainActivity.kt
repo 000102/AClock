@@ -248,22 +248,23 @@ fun Modifier.blurredBackground(
         )
     } else {
         // Android 11及以下使用多层半透明叠加模拟毛玻璃效果
+        val bgColor = backgroundColor // 捕获变量到局部作用域
         this
             .drawBehind {
                 // 绘制多层渐变模拟模糊
                 drawRect(
                     brush = Brush.radialGradient(
                         colors = listOf(
-                            backgroundColor.copy(alpha = 0.7f),
-                            backgroundColor.copy(alpha = 0.85f),
-                            backgroundColor.copy(alpha = 0.95f)
+                            bgColor.copy(alpha = 0.7f),
+                            bgColor.copy(alpha = 0.85f),
+                            bgColor.copy(alpha = 0.95f)
                         ),
                         center = center,
                         radius = size.maxDimension * 0.8f
                     )
                 )
                 // 叠加纯色层增强毛玻璃感
-                drawRect(backgroundColor.copy(alpha = 0.75f))
+                drawRect(bgColor.copy(alpha = 0.75f))
             }
             .graphicsLayer {
                 // 添加轻微的层次感
