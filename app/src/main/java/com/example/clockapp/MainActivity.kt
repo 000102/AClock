@@ -62,7 +62,7 @@ import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.roundToInt
 
-// --- 数据库逻辑 (保持不变) ---
+// --- 数据库与业务逻辑 (严禁改动) ---
 val Context.dataStore by preferencesDataStore(name = "settings")
 
 @Entity(tableName = "todos")
@@ -129,7 +129,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun toggleStar(id: Long, current: Boolean) = viewModelScope.launch(Dispatchers.IO) { todoDao.setStarred(id, !current) }
 }
 
-// --- UI 主程序 (全量视觉回归) ---
+// --- UI 界面 ---
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -151,7 +151,6 @@ fun ClockTodoApp() {
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { it?.let { viewModel.setBackground(it) } }
 
     Box(Modifier.fillMaxSize()) {
-        // --- 背景层应用 Haze ---
         Box(Modifier.fillMaxSize().haze(hazeState)) {
             if (bgUri != null) {
                 Image(rememberAsyncImagePainter(bgUri), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
@@ -161,42 +160,46 @@ fun ClockTodoApp() {
             }
         }
 
-        // --- 原始布局 3:1 ---
         Row(Modifier.fillMaxSize().padding(32.dp).statusBarsPadding()) {
-            // 左侧：时间 (3/4)
+            // 左侧时间 (3/4)
             Column(Modifier.weight(0.75f).fillMaxHeight(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-                // 修正 hazeChild 语法
                 Box(Modifier.fillMaxWidth(0.85f).fillMaxHeight(0.6f)
                     .clip(RoundedCornerShape(32.dp))
-                    .hazeChild(state = hazeState, shape = RoundedCornerShape(32.dp), tint = Color.White.copy(0.12f), blurRadius = 20.dp)
+                    .hazeChild(state = hazeState, shape = RoundedCornerShape(32.dp), tint = Color.White.copy(0.12f), blurRadius = 25.dp)
                     .border(1.dp, Color.White.copy(0.2f), RoundedCornerShape(32.dp)),
                     contentAlignment = Alignment.Center
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(time)), style = TextStyle(fontSize = 150.sp, fontWeight = FontWeight.Thin, color = Color.White))
                         Text(SimpleDateFormat("yyyy年MM月dd日 EEEE", Locale.CHINESE).format(Date(time)), style = TextStyle(fontSize = 26.sp, fontWeight = FontWeight.Light, color = Color.White.copy(0.8f)))
-                        Text(SimpleDateFormat("ss", Locale.getDefault()).format(Date(time)), style = TextStyle(fontSize = 45.sp, fontWeight = FontWeight.ExtraLight, color = Color(0xFFFFB800)))
+                        // 修正：秒数回归白色
+                        Text(SimpleDateFormat("ss", Locale.getDefault()).format(Date(time)), style = TextStyle(fontSize = 45.sp, fontWeight = FontWeight.ExtraLight, color = Color.White.copy(0.9f)))
                     }
                 }
             }
 
-            // 右侧：待办列表 (1/4)
+            // 右侧待办 (1/4)
             Column(Modifier.weight(0.25f).fillMaxHeight().padding(start = 24.dp)) {
                 Box(Modifier.fillMaxSize()
                     .clip(RoundedCornerShape(32.dp))
-                    .hazeChild(state = hazeState, shape = RoundedCornerShape(32.dp), tint = Color.White.copy(0.1f), blurRadius = 20.dp)
+                    .hazeChild(state = hazeState, shape = RoundedCornerShape(32.dp), tint = Color.White.copy(0.1f), blurRadius = 25.dp)
                     .border(1.dp, Color.White.copy(0.15f), RoundedCornerShape(32.dp))
                 ) {
                     Column(Modifier.padding(20.dp)) {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            Text("待办事项", style = TextStyle(fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White))
-                            IconButton(onClick = { launcher.launch(arrayOf("image/*")) }) { Icon(Icons.Default.Image, null, tint = Color.White.copy(0.4f)) }
+                        // 修正：标题左对齐，IconButton 靠右
+                        Box(Modifier.fillMaxWidth()) {
+                            Text("待办事项", style = TextStyle(fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White), modifier = Modifier.align(Alignment.CenterStart))
+                            IconButton(onClick = { launcher.launch(arrayOf("image/*")) }, modifier = Modifier.align(Alignment.CenterEnd)) { 
+                                Icon(Icons.Default.Image, null, tint = Color.White.copy(0.4f)) 
+                            }
                         }
+                        
                         Spacer(Modifier.height(20.dp))
                         
                         Box(Modifier.weight(1f)) {
                             if (todos.isEmpty()) {
-                                Text("悠闲的一天，去喝杯茶吧~", style = TextStyle(color = Color.White.copy(0.3f), fontSize = 16.sp), modifier = Modifier.align(Alignment.Center))
+                                // 修正：显示不明显的文字
+                                Text("悠闲的一天，去喝杯茶吧~", style = TextStyle(color = Color.White.copy(0.25f), fontSize = 15.sp), modifier = Modifier.align(Alignment.Center))
                             } else {
                                 LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                     items(todos, key = { it.id }) { item ->
@@ -214,11 +217,14 @@ fun ClockTodoApp() {
             }
         }
 
+        // --- 逻辑 Bug 修复 ---
         if (viewModel.showSheet) {
             OriginalAddTodoSheet(
                 text = viewModel.inputText,
                 onTextChange = { viewModel.inputText = it },
-                onDismiss = { if (viewModel.inputText.isNotBlank()) viewModel.showDiscardDialog = true else viewModel.showSheet = false },
+                onDismiss = { 
+                    if (viewModel.inputText.isNotBlank()) viewModel.showDiscardDialog = true else viewModel.showSheet = false 
+                },
                 onSave = { viewModel.saveTodo() }
             )
         }
@@ -228,8 +234,16 @@ fun ClockTodoApp() {
                 onDismissRequest = { viewModel.showDiscardDialog = false },
                 title = { Text("继续编辑吗？") },
                 text = { Text("您输入的内容尚未保存。") },
-                confirmButton = { TextButton(onClick = { viewModel.showDiscardDialog = false }) { Text("继续编辑", color = Color(0xFFFFB800)) } },
-                dismissButton = { TextButton(onClick = { viewModel.inputText = ""; viewModel.showDiscardDialog = false; viewModel.showSheet = false }) { Text("放弃内容", color = Color.White.copy(0.5f)) } }
+                confirmButton = { 
+                    TextButton(onClick = { viewModel.showDiscardDialog = false }) { Text("继续编辑", color = Color(0xFFFFB800)) } 
+                },
+                dismissButton = { 
+                    TextButton(onClick = { 
+                        viewModel.inputText = ""; 
+                        viewModel.showDiscardDialog = false; 
+                        viewModel.showSheet = false 
+                    }) { Text("放弃内容", color = Color.White.copy(0.5f)) } 
+                }
             )
         }
     }
@@ -270,9 +284,9 @@ fun OriginalSwipeItem(todo: TodoItem, onComplete: () -> Unit, onStar: () -> Unit
                         }
                     )
                 },
-            color = if (todo.isStarred) Color(0xFFFFB800).copy(0.2f) else Color.White.copy(0.12f),
+            color = if (todo.isStarred) Color(0xFFFFB800).copy(0.15f) else Color.White.copy(0.12f),
             shape = RoundedCornerShape(14.dp),
-            border = if (todo.isStarred) BorderStroke(1.dp, Color(0xFFFFB800).copy(0.5f)) else null
+            border = if (todo.isStarred) BorderStroke(1.dp, Color(0xFFFFB800).copy(0.4f)) else null
         ) {
             Row(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (todo.isStarred) Icon(Icons.Default.Star, null, tint = Color(0xFFFFB800), modifier = Modifier.size(18.dp))
