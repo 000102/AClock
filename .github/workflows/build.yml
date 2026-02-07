@@ -52,7 +52,7 @@ jobs:
       
       # 步骤 6: 编译 Debug APK
       - name: Build Debug APK
-        run: ./gradlew assembleDebug
+        run: ./gradlew clean assembleDebug
       
       # 步骤 7: 上传 APK 作为 Artifact
       - name: Upload Debug APK
