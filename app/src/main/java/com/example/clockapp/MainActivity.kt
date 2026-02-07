@@ -203,9 +203,9 @@ fun ClockTodoApp() {
             AlertDialog(
                 onDismissRequest = { viewModel.showDiscardDialog = false },
                 title = { Text("继续编辑？") },
-                text = { Text("当前有未保存的内容。") },
-                confirmButton = { TextButton(onClick = { viewModel.showDiscardDialog = false }) { Text("返回", color = Color(0xFFFFB800)) } },
-                dismissButton = { TextButton(onClick = { viewModel.inputText = ""; viewModel.showDiscardDialog = false; viewModel.showSheet = false }) { Text("放弃", color = Color.White.copy(0.6f)) } }
+                text = { Text("您有尚未保存的内容。") },
+                confirmButton = { TextButton(onClick = { viewModel.showDiscardDialog = false }) { Text("回到编辑", color = Color(0xFFFFB800)) } },
+                dismissButton = { TextButton(onClick = { viewModel.inputText = ""; viewModel.showDiscardDialog = false; viewModel.showSheet = false }) { Text("放弃内容", color = Color.White.copy(0.6f)) } }
             )
         }
     }
@@ -296,7 +296,7 @@ fun AddTodoSheet(text: String, onTextChange: (String) -> Unit, onDismiss: () -> 
         containerColor = Color(0xFF1C1C1E)
     ) {
         Column(Modifier.padding(24.dp).navigationBarsPadding().imePadding()) {
-            Text("添加待办", style = TextStyle(fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White))
+            Text("新事项", style = TextStyle(fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White))
             Spacer(Modifier.height(16.dp))
             OutlinedTextField(
                 value = text,
@@ -307,7 +307,7 @@ fun AddTodoSheet(text: String, onTextChange: (String) -> Unit, onDismiss: () -> 
                     focusedBorderColor = Color(0xFFFFB800),
                     unfocusedBorderColor = Color.White.copy(0.3f)
                 ),
-                placeholder = { Text("请输入文本", color = Color.White.copy(0.4f)) }
+                placeholder = { Text("在此输入待办...", color = Color.White.copy(0.4f)) }
             )
             Spacer(Modifier.height(24.dp))
             Button(
@@ -316,7 +316,7 @@ fun AddTodoSheet(text: String, onTextChange: (String) -> Unit, onDismiss: () -> 
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFB800)),
                 enabled = text.isNotBlank()
             ) {
-                Text("添加", fontWeight = FontWeight.Bold)
+                Text("确认添加", fontWeight = FontWeight.Bold)
             }
             Spacer(Modifier.height(16.dp))
         }
