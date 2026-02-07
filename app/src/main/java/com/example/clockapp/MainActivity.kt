@@ -413,8 +413,7 @@ fun ClockTodoApp() {
                         scaleX = timeScale
                         scaleY = timeScale
                         alpha = timeAlpha
-                    }
-                    
+                    },
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
@@ -457,47 +456,45 @@ fun ClockTodoApp() {
             }
 
             /* 待办区 - 在上层 */
-            Box(Modifier) {
-                TodoBoxContent(
-                    boxState = boxState,
-                    expandProgress = expandProgress,
-                    boxOffsetX = boxOffsetX.value,
-                    todos = todos,
-                    hazeState = hazeState,
-                    viewModel = viewModel,
-                    onStateChange = { newState ->
-                        scope.launch {
-                            when (newState) {
-                                TodoBoxState.EXPANDED -> {
-                                    boxState = TodoBoxState.EXPANDED
-                                    expandProgress.animateTo(1f, tween(500))
-                                }
-                                TodoBoxState.NORMAL -> {
-                                    // 从展开收起到正常状态，先向左收起再从右侧弹出
-                                    if (boxState == TodoBoxState.EXPANDED) {
-                                        expandProgress.animateTo(0f, tween(500))
-                                        boxOffsetX.animateTo(-screenWidthPx, tween(500))
-                                        boxOffsetX.snapTo(screenWidthPx)
-                                        boxState = TodoBoxState.NORMAL
-                                        boxOffsetX.animateTo(0f, tween(500))
-                                    } else {
-                                        boxState = TodoBoxState.NORMAL
-                                    }
-                                }
-                                TodoBoxState.HIDDEN -> {
-                                    if (isLandscape) {
-                                        viewModel.setBoxManuallyHidden(true)
-                                    }
-                                    expandProgress.snapTo(0f)
-                                    boxState = TodoBoxState.HIDDEN
-                                    boxOffsetX.snapTo(0f)
+            TodoBoxContent(
+                boxState = boxState,
+                expandProgress = expandProgress,
+                boxOffsetX = boxOffsetX.value,
+                todos = todos,
+                hazeState = hazeState,
+                viewModel = viewModel,
+                onStateChange = { newState ->
+                    scope.launch {
+                        when (newState) {
+                            TodoBoxState.EXPANDED -> {
+                                boxState = TodoBoxState.EXPANDED
+                                expandProgress.animateTo(1f, tween(500))
+                            }
+                            TodoBoxState.NORMAL -> {
+                                // 从展开收起到正常状态，先向左收起再从右侧弹出
+                                if (boxState == TodoBoxState.EXPANDED) {
+                                    expandProgress.animateTo(0f, tween(500))
+                                    boxOffsetX.animateTo(-screenWidthPx, tween(500))
+                                    boxOffsetX.snapTo(screenWidthPx)
+                                    boxState = TodoBoxState.NORMAL
+                                    boxOffsetX.animateTo(0f, tween(500))
+                                } else {
+                                    boxState = TodoBoxState.NORMAL
                                 }
                             }
+                            TodoBoxState.HIDDEN -> {
+                                if (isLandscape) {
+                                    viewModel.setBoxManuallyHidden(true)
+                                }
+                                expandProgress.snapTo(0f)
+                                boxState = TodoBoxState.HIDDEN
+                                boxOffsetX.snapTo(0f)
+                            }
                         }
-                    },
-                    isLandscape = isLandscape
-                )
-            }
+                    }
+                },
+                isLandscape = isLandscape
+            )
         }
 
         /* Snackbar */
