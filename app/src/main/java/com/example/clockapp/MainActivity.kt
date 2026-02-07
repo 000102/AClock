@@ -11,6 +11,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -91,7 +92,6 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
-import androidx.activity.compose.setContent
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -161,7 +161,7 @@ interface TodoDao {
     
     @Query("UPDATE todos SET isCompleted = 1 WHERE id = :id")
     suspend fun markAsCompleted(id: Long)
-    
+   
     @Query("UPDATE todos SET isStarred = :starred WHERE id = :id")
     suspend fun setStarred(id: Long, starred: Boolean)
     
@@ -269,7 +269,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     
     fun setBackgroundUri(uri: Uri?) {
         _backgroundUri.value = uri
-        
+   
         viewModelScope.launch {
             if (uri != null) {
                 try {
@@ -621,13 +621,14 @@ fun ClockSection(
             ) {
                 Text(
                     text = dateFormat.format(Date(currentTime)),
+                    // 修正：全路径 Typography
                     style = androidx.compose.material3.MaterialTheme.typography.headlineSmall,
                     color = Color.White.copy(alpha = 0.75f),
                     fontWeight = FontWeight.Medium
                 )
                 
                 Spacer(modifier = Modifier.height(24.dp))
-                
+    
                 Text(
                     text = timeFormat.format(Date(currentTime)),
                     style = TextStyle(
@@ -657,10 +658,8 @@ fun CloudyFrostedGlassContainer(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.White.copy(alpha = 0.08f))
-                .cloudy(
-                    radius = blurRadius,
-                    key1 = Unit 
-                )
+                // 修正：移除不支持的 key1 参数
+                .cloudy(radius = blurRadius)
         )
         
         Box(
@@ -668,19 +667,16 @@ fun CloudyFrostedGlassContainer(
                 .fillMaxSize()
                 .drawWithContent {
                     drawContent()
-                    
                     drawRect(
                         color = Color.White.copy(alpha = 0.2f),
                         topLeft = Offset(0f, 0f),
                         size = androidx.compose.ui.geometry.Size(size.width, 1f)
                     )
-                    
                     drawRect(
                         color = Color.White.copy(alpha = 0.1f),
                         topLeft = Offset(0f, 0f),
                         size = androidx.compose.ui.geometry.Size(1f, size.height)
                     )
-                    
                     drawRoundRect(
                         color = Color.White.copy(alpha = 0.15f),
                         topLeft = Offset(0f, 0f),
@@ -728,6 +724,7 @@ fun TodoSection(
             ) {
                 Text(
                     text = "待办事项",
+                    // 修正：全路径 Typography
                     style = androidx.compose.material3.MaterialTheme.typography.titleLarge,
                     color = Color.White.copy(alpha = 0.9f),
                     fontWeight = FontWeight.SemiBold,
@@ -774,6 +771,7 @@ fun EmptyTodoState(modifier: Modifier = Modifier) {
     ) {
         Text(
             text = "真是悠闲的一天，\n去喝杯茶吧~",
+            // 修正：全路径 Typography
             style = androidx.compose.material3.MaterialTheme.typography.bodyLarge,
             color = Color.White.copy(alpha = 0.55f),
             textAlign = TextAlign.Center,
@@ -812,7 +810,6 @@ fun SwipeableTodoItem(
     onComplete: () -> Unit,
     onStar: () -> Unit
 ) {
-    val scope = rememberCoroutineScope()
     val density = LocalDensity.current
     val swipeThreshold = with(density) { 120.dp.toPx() }
     
@@ -840,7 +837,7 @@ fun SwipeableTodoItem(
                 modifier = Modifier.fillMaxSize()
             )
         }
-        
+  
         TodoItemCardWithStar(
             todo = todo,
             modifier = Modifier
@@ -910,7 +907,6 @@ fun StarBackground(
                             val centerY = size.height / 2
                             val outerRadius = size.width / 2
                             val innerRadius = outerRadius * 0.4f
-                            
                             val path = Path()
                             for (i in 0 until 10) {
                                 val angle = kotlin.math.PI / 2 + i * kotlin.math.PI / 5
@@ -924,7 +920,6 @@ fun StarBackground(
                                 }
                             }
                             path.close()
-                            
                             drawPath(
                                 path = path,
                                 color = Color(0xFFFFB800).copy(alpha = progress)
@@ -1024,7 +1019,6 @@ fun TodoItemCardWithStar(
                         val centerY = size.height / 2
                         val outerRadius = size.width / 2
                         val innerRadius = outerRadius * 0.4f
-                        
                         val path = Path()
                         for (i in 0 until 10) {
                             val angle = kotlin.math.PI / 2 + i * kotlin.math.PI / 5
@@ -1038,7 +1032,6 @@ fun TodoItemCardWithStar(
                             }
                         }
                         path.close()
-                        
                         drawPath(
                             path = path,
                             color = Color(0xFFFFB800)
@@ -1050,6 +1043,7 @@ fun TodoItemCardWithStar(
             
             Text(
                 text = todo.content,
+                // 修正：全路径 Typography
                 style = androidx.compose.material3.MaterialTheme.typography.bodyLarge,
                 color = Color.White.copy(alpha = 0.9f),
                 modifier = Modifier.weight(1f)
@@ -1067,9 +1061,7 @@ fun AddTodoBottomSheet(
     onSave: () -> Unit,
     onShowDiscardDialog: () -> Unit
 ) {
-    val sheetState = rememberModalBottomSheetState(
-        skipPartiallyExpanded = true
-    )
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
     val colorScheme = MaterialTheme.colorScheme
     
@@ -1108,6 +1100,7 @@ fun AddTodoBottomSheet(
             ) {
                 Text(
                     text = "新建待办",
+                    // 修正：全路径 Typography
                     style = androidx.compose.material3.MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold,
                     color = colorScheme.onSurface
@@ -1132,7 +1125,7 @@ fun AddTodoBottomSheet(
                     )
                 }
             }
-            
+        
             Spacer(modifier = Modifier.height(16.dp))
             
             Surface(
@@ -1146,6 +1139,7 @@ fun AddTodoBottomSheet(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(16.dp),
+                    // 修正：全路径 Typography
                     textStyle = androidx.compose.material3.MaterialTheme.typography.bodyLarge.copy(
                         color = colorScheme.onSurface
                     ),
@@ -1153,6 +1147,7 @@ fun AddTodoBottomSheet(
                         if (inputText.isEmpty()) {
                             Text(
                                 text = "输入待办事项...",
+                                // 修正：全路径 Typography
                                 style = androidx.compose.material3.MaterialTheme.typography.bodyLarge,
                                 color = colorScheme.onSurfaceVariant
                             )
@@ -1184,7 +1179,7 @@ fun AddTodoBottomSheet(
                 }
                 
                 Spacer(modifier = Modifier.width(8.dp))
-                
+           
                 Button(
                     onClick = {
                         scope.launch {
@@ -1220,6 +1215,7 @@ fun DiscardChangesDialog(
         title = {
             Text(
                 text = "是否放弃更改？",
+                // 修正：全路径 Typography
                 style = androidx.compose.material3.MaterialTheme.typography.headlineSmall,
                 color = colorScheme.onSurface
             )
@@ -1233,6 +1229,7 @@ fun DiscardChangesDialog(
         confirmButton = {
             TextButton(
                 onClick = onConfirm,
+                // 修正：全路径 ButtonDefaults
                 colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
                     contentColor = colorScheme.error
                 )
@@ -1243,6 +1240,7 @@ fun DiscardChangesDialog(
         dismissButton = {
             TextButton(
                 onClick = onDismiss,
+                // 修正：全路径 ButtonDefaults
                 colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
                     contentColor = colorScheme.primary
                 )
