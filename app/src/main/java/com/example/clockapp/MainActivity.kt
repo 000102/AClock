@@ -39,7 +39,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -56,14 +55,16 @@ import coil.compose.rememberAsyncImagePainter
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.haze
 import dev.chrisbanes.haze.hazeChild
-import kotlinx.coroutines.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.*
-import kotlin.math.abs
 import kotlin.math.roundToInt
 
-/* ---------- Data ---------- */
+/* ---------- 数据层 ---------- */
 
 val Context.dataStore by preferencesDataStore(name = "settings")
 
@@ -78,17 +79,27 @@ data class TodoItem(
 
 @Dao
 interface TodoDao {
-    @Query("SELECT * FROM todos WHERE isCompleted = 0 ORDER BY isStarred DESC, createdAt DESC")
+    @Query(
+        "SELECT * FROM todos " +
+        "WHERE isCompleted = 0 " +
+        "ORDER BY isStarred DESC, createdAt DESC"
+    )
     fun getAllActiveTodos(): Flow<List<TodoItem>>
 
-    @Insert suspend fun insert(todo: TodoItem)
-    @Query("UPDATE todos SET isCompleted = 1 WHERE id = :id") suspend fun markAsCompleted(id: Long)
-    @Query("UPDATE todos SET isStarred = :starred WHERE id = :id") suspend fun setStarred(id: Long, starred: Boolean)
+    @Insert
+    suspend fun insert(todo: TodoItem)
+
+    @Query("UPDATE todos SET isCompleted = 1 WHERE id = :id")
+    suspend fun markAsCompleted(id: Long)
+
+    @Query("UPDATE todos SET isStarred = :starred WHERE id = :id")
+    suspend fun setStarred(id: Long, starred: Boolean)
 }
 
 @Database(entities = [TodoItem::class], version = 2, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun todoDao(): TodoDao
+
     companion object {
         @Volatile private var INSTANCE: AppDatabase? = null
         fun getInstance(context: Context): AppDatabase =
@@ -97,7 +108,8 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "todo_db"
-                ).fallbackToDestructiveMigration()
+                )
+                    .fallbackToDestructiveMigration()
                     .build()
                     .also { INSTANCE = it }
             }
@@ -112,11 +124,13 @@ class ClockApplication : Application() {
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val dao = (application as ClockApplication).database.todoDao()
-    private val BG_KEY = stringPreferencesKey("bg_uri")
+    private val todoDao =
+        (application as ClockApplication).database.todoDao()
+
+    private val BACKGROUND_KEY = stringPreferencesKey("bg_uri")
 
     val currentTime = flow {
-        while (currentCoroutineContext().isActive) {
+        while (true) {
             emit(System.currentTimeMillis())
             delay(1000)
         }
@@ -126,8 +140,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         System.currentTimeMillis()
     )
 
-    val todos = dao.getAllActiveTodos()
-        .scan(emptyList<TodoItem>()) { old, new -> if (new.isEmpty()) old else new }
+    val todos = todoDao.getAllActiveTodos()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _bgUri = MutableStateFlow<Uri?>(null)
@@ -138,57 +151,47 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var inputText by mutableStateOf("")
     var snackbarVisible by mutableStateOf(false)
 
-    private var snackbarJob: Job? = null
-
     init {
         viewModelScope.launch {
             getApplication<Application>().dataStore.data
-                .map { it[BG_KEY] }
+                .map { it[BACKGROUND_KEY] }
                 .firstOrNull()
-                ?.let {
-                    val uri = Uri.parse(it)
-                    if (canRead(uri)) _bgUri.value = uri else clearBg()
-                }
-        }
-    }
-
-    private fun canRead(uri: Uri): Boolean =
-        try {
-            getApplication<Application>().contentResolver.openInputStream(uri)?.close()
-            true
-        } catch (_: Exception) { false }
-
-    private fun clearBg() {
-        viewModelScope.launch {
-            _bgUri.value = null
-            getApplication<Application>().dataStore.edit { it.remove(BG_KEY) }
+                ?.let { _bgUri.value = Uri.parse(it) }
         }
     }
 
     fun setBackground(uri: Uri) {
         _bgUri.value = uri
         viewModelScope.launch {
-            try {
-                getApplication<Application>().contentResolver
-                    .takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                getApplication<Application>().dataStore.edit { it[BG_KEY] = uri.toString() }
-            } catch (_: Exception) { clearBg() }
+            getApplication<Application>().contentResolver
+                .takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            getApplication<Application>().dataStore.edit {
+                it[BACKGROUND_KEY] = uri.toString()
+            }
         }
     }
 
     fun saveTodo() {
-        if (inputText.isBlank()) return
-        viewModelScope.launch(Dispatchers.IO) {
-            dao.insert(TodoItem(content = inputText.trim()))
+        val text = inputText.trim()
+        if (text.isBlank()) return
+
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                todoDao.insert(TodoItem(content = text))
+            }
+            inputText = ""
+            showSheet = false
         }
-        inputText = ""
-        showSheet = false
     }
 
     fun complete(id: Long) {
-        viewModelScope.launch(Dispatchers.IO) { dao.markAsCompleted(id) }
-        snackbarJob?.cancel()
-        snackbarJob = viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
+            todoDao.markAsCompleted(id)
+        }
+        viewModelScope.launch {
             snackbarVisible = true
             delay(1000)
             snackbarVisible = false
@@ -196,11 +199,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun toggleStar(id: Long, current: Boolean) {
-        viewModelScope.launch(Dispatchers.IO) { dao.setStarred(id, !current) }
+        viewModelScope.launch(Dispatchers.IO) {
+            todoDao.setStarred(id, !current)
+        }
     }
 }
 
-/* ---------- UI ---------- */
+/* ---------- Activity ---------- */
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -218,27 +223,29 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+/* ---------- UI ---------- */
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ClockTodoApp() {
-    val vm: MainViewModel = viewModel(
-        factory = ViewModelProvider.AndroidViewModelFactory.getInstance(
-            LocalContext.current.applicationContext as Application
-        )
+    val viewModel: MainViewModel = viewModel(
+        factory = ViewModelProvider.AndroidViewModelFactory
+            .getInstance(LocalContext.current.applicationContext as Application)
     )
 
-    val bgUri by vm.bgUri.collectAsState()
-    val time by vm.currentTime.collectAsState()
-    val todos by vm.todos.collectAsState()
+    val bgUri by viewModel.bgUri.collectAsState()
+    val time by viewModel.currentTime.collectAsState()
+    val todos by viewModel.todos.collectAsState()
+    val hazeState = remember { HazeState() }
 
-    val haze = remember { HazeState() }
     val launcher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
-    ) { it?.let(vm::setBackground) }
+    ) { it?.let(viewModel::setBackground) }
 
     Box(Modifier.fillMaxSize()) {
 
-        Box(Modifier.fillMaxSize().haze(haze)) {
+        /* 背景 */
+        Box(Modifier.fillMaxSize().haze(hazeState)) {
             if (bgUri != null) {
                 Image(
                     rememberAsyncImagePainter(bgUri),
@@ -246,7 +253,10 @@ fun ClockTodoApp() {
                     Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop
                 )
-                Box(Modifier.fillMaxSize().background(Color.Black.copy(0.15f)))
+                Box(
+                    Modifier.fillMaxSize()
+                        .background(Color.Black.copy(0.15f))
+                )
             } else {
                 Box(
                     Modifier.fillMaxSize().background(
@@ -260,23 +270,35 @@ fun ClockTodoApp() {
 
         IconButton(
             onClick = { launcher.launch(arrayOf("image/*")) },
-            modifier = Modifier.align(Alignment.TopEnd).padding(32.dp)
+            modifier = Modifier.align(Alignment.TopEnd)
+                .padding(32.dp)
+                .statusBarsPadding()
         ) {
-            Icon(Icons.Default.Image, null, tint = Color.White.copy(0.5f))
+            Icon(
+                Icons.Default.Image,
+                null,
+                tint = Color.White.copy(0.5f),
+                modifier = Modifier.size(32.dp)
+            )
         }
 
-        Row(Modifier.fillMaxSize().padding(32.dp)) {
+        /* 主布局 */
+        Row(
+            Modifier.fillMaxSize()
+                .padding(32.dp)
+                .statusBarsPadding()
+        ) {
 
+            /* 时间区 */
             Column(
-                Modifier.weight(0.75f),
+                Modifier.weight(0.75f).fillMaxHeight(),
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Row(verticalAlignment = Alignment.Bottom) {
                     Text(
-                        SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(time)),
-                        maxLines = 1,
-                        overflow = TextOverflow.Clip,
+                        SimpleDateFormat("HH:mm", Locale.getDefault())
+                            .format(Date(time)),
                         style = TextStyle(
                             fontSize = 180.sp,
                             fontWeight = FontWeight.Thin,
@@ -284,95 +306,174 @@ fun ClockTodoApp() {
                         )
                     )
                     Text(
-                        SimpleDateFormat(":ss", Locale.getDefault()).format(Date(time)),
+                        SimpleDateFormat(":ss", Locale.getDefault())
+                            .format(Date(time)),
                         style = TextStyle(
                             fontSize = 50.sp,
                             fontWeight = FontWeight.ExtraLight,
                             color = Color.White.copy(0.8f)
                         ),
-                        modifier = Modifier.padding(bottom = 32.dp, start = 12.dp)
+                        modifier = Modifier.padding(
+                            bottom = 32.dp,
+                            start = 12.dp
+                        )
                     )
                 }
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    SimpleDateFormat(
+                        "yyyy年MM月dd日 EEEE",
+                        Locale.CHINESE
+                    ).format(Date(time)),
+                    style = TextStyle(
+                        fontSize = 28.sp,
+                        fontWeight = FontWeight.Light,
+                        color = Color.White.copy(0.8f)
+                    )
+                )
             }
 
-            Column(Modifier.weight(0.25f).padding(start = 24.dp)) {
+            /* 待办区 */
+            Column(
+                Modifier.weight(0.25f)
+                    .fillMaxHeight()
+                    .padding(start = 24.dp)
+            ) {
                 Box(
                     Modifier.fillMaxSize()
                         .clip(RoundedCornerShape(32.dp))
                         .hazeChild(
-                            haze,
-                            RoundedCornerShape(32.dp),
-                            Color.White.copy(0.1f),
-                            25.dp
+                            state = hazeState,
+                            shape = RoundedCornerShape(32.dp),
+                            tint = Color.White.copy(0.1f),
+                            blurRadius = 25.dp
                         )
-                        .border(1.dp, Color.White.copy(0.15f), RoundedCornerShape(32.dp))
+                        .border(
+                            1.dp,
+                            Color.White.copy(0.15f),
+                            RoundedCornerShape(32.dp)
+                        )
                 ) {
                     Column(Modifier.padding(24.dp)) {
-                        Text("待办事项", color = Color.White)
-                        Spacer(Modifier.height(16.dp))
+                        Text(
+                            "待办事项",
+                            style = TextStyle(
+                                fontSize = 22.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        )
+                        Spacer(Modifier.height(20.dp))
 
-                        LazyColumn(
-                            Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            items(todos, key = { it.id }) {
-                                OriginalSwipeItem(
-                                    it,
-                                    { vm.complete(it.id) },
-                                    { vm.toggleStar(it.id, it.isStarred) }
+                        Box(Modifier.weight(1f)) {
+                            if (todos.isEmpty()) {
+                                Text(
+                                    "悠闲的一天，去喝杯茶吧~",
+                                    style = TextStyle(
+                                        color = Color.White.copy(0.25f),
+                                        fontSize = 15.sp
+                                    ),
+                                    modifier = Modifier.align(Alignment.Center)
                                 )
+                            } else {
+                                LazyColumn(
+                                    verticalArrangement =
+                                    Arrangement.spacedBy(12.dp)
+                                ) {
+                                    items(todos, key = { it.id }) { item ->
+                                        OriginalSwipeItem(
+                                            todo = item,
+                                            onComplete = {
+                                                viewModel.complete(item.id)
+                                            },
+                                            onStar = {
+                                                viewModel.toggleStar(
+                                                    item.id,
+                                                    item.isStarred
+                                                )
+                                            }
+                                        )
+                                    }
+                                }
                             }
                         }
 
                         FloatingActionButton(
-                            onClick = { vm.showSheet = true },
+                            onClick = { viewModel.showSheet = true },
                             containerColor = Color(0xFFFFB800),
-                            modifier = Modifier.align(Alignment.CenterHorizontally)
+                            shape = CircleShape,
+                            modifier = Modifier.align(
+                                Alignment.CenterHorizontally
+                            ).padding(top = 16.dp)
                         ) {
-                            Icon(Icons.Default.Add, null)
+                            Icon(Icons.Default.Add, null, tint = Color.White)
                         }
                     }
                 }
             }
         }
 
-        if (vm.snackbarVisible) {
+        /* Snackbar */
+        if (viewModel.snackbarVisible) {
             Card(
-                Modifier.align(Alignment.BottomCenter).padding(bottom = 120.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF4CAF50))
+                Modifier.align(Alignment.BottomCenter)
+                    .padding(bottom = 120.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = Color(0xFF4CAF50)
+                ),
+                shape = RoundedCornerShape(12.dp)
             ) {
-                Text("已完成！", Modifier.padding(16.dp), color = Color.White)
+                Text(
+                    "已完成！",
+                    Modifier.padding(
+                        horizontal = 24.dp,
+                        vertical = 12.dp
+                    ),
+                    color = Color.White
+                )
             }
         }
 
-        if (vm.showSheet) {
+        /* BottomSheet */
+        if (viewModel.showSheet) {
             OriginalAddTodoSheet(
-                vm.inputText,
-                { vm.inputText = it },
-                {
-                    if (vm.inputText.isNotBlank()) vm.showDiscardDialog = true
-                    else vm.showSheet = false
+                text = viewModel.inputText,
+                onTextChange = { viewModel.inputText = it },
+                onDismiss = {
+                    if (viewModel.inputText.isNotBlank()) {
+                        viewModel.showDiscardDialog = true
+                    } else {
+                        viewModel.showSheet = false
+                    }
                 },
-                { vm.saveTodo() }
+                onSave = { viewModel.saveTodo() }
             )
         }
 
-        if (vm.showDiscardDialog) {
+        /* 放弃确认 */
+        if (viewModel.showDiscardDialog) {
             AlertDialog(
-                onDismissRequest = { vm.showDiscardDialog = false },
+                onDismissRequest = {
+                    viewModel.showDiscardDialog = false
+                },
                 title = { Text("继续编辑吗？") },
-                text = { Text("内容还没保存。") },
+                text = { Text("您输入的内容尚未保存。") },
                 confirmButton = {
-                    TextButton(onClick = { vm.showDiscardDialog = false }) {
-                        Text("继续编辑")
+                    TextButton(onClick = {
+                        viewModel.showDiscardDialog = false
+                        viewModel.showSheet = true
+                    }) {
+                        Text("继续编辑", color = Color(0xFFFFB800))
                     }
                 },
                 dismissButton = {
                     TextButton(onClick = {
-                        vm.inputText = ""
-                        vm.showDiscardDialog = false
-                        vm.showSheet = false
-                    }) { Text("放弃") }
+                        viewModel.inputText = ""
+                        viewModel.showDiscardDialog = false
+                        viewModel.showSheet = false
+                    }) {
+                        Text("放弃内容", color = Color.White.copy(0.5f))
+                    }
                 }
             )
         }
@@ -382,56 +483,121 @@ fun ClockTodoApp() {
 /* ---------- Swipe Item ---------- */
 
 @Composable
-fun OriginalSwipeItem(todo: TodoItem, onComplete: () -> Unit, onStar: () -> Unit) {
+fun OriginalSwipeItem(
+    todo: TodoItem,
+    onComplete: () -> Unit,
+    onStar: () -> Unit
+) {
     val offsetX = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
-    val scale = (abs(offsetX.value) / 150f).coerceIn(0f, 1.2f)
 
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(64.dp)
-            .offset { IntOffset(offsetX.value.roundToInt(), 0) }
-            .pointerInput(todo.id) {
-                detectHorizontalDragGestures(
-                    onHorizontalDrag = { change, drag ->
-                        change.consume()
-                        scope.launch {
-                            offsetX.snapTo(
-                                (offsetX.value + drag).coerceIn(-200f, 200f)
-                            )
-                        }
-                    },
-                    onDragEnd = {
-                        scope.launch {
-                            when {
-                                offsetX.value > 150f -> onComplete()
-                                offsetX.value < -150f -> onStar()
-                            }
-                            offsetX.animateTo(0f, spring(Spring.DampingRatioMediumBouncy))
-                        }
-                    }
-                )
-            },
-        color = if (todo.isStarred)
-            Color(0xFFFFB800).copy(0.15f)
-        else Color.White.copy(0.12f),
-        shape = RoundedCornerShape(14.dp)
-    ) {
-        Row(
-            Modifier.fillMaxSize().padding(horizontal = 16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            if (todo.isStarred) {
+    val iconScale by remember {
+        derivedStateOf {
+            (kotlin.math.abs(offsetX.value) / 150f)
+                .coerceIn(0f, 1.2f)
+        }
+    }
+
+    Box(Modifier.fillMaxWidth().height(64.dp)) {
+
+        Box(Modifier.fillMaxSize()) {
+            if (offsetX.value > 10f) {
+                Box(
+                    Modifier.align(Alignment.CenterStart)
+                        .padding(start = 20.dp)
+                        .graphicsLayer(
+                            scaleX = iconScale,
+                            scaleY = iconScale
+                        )
+                        .size(40.dp)
+                        .background(
+                            Color(0xFF4CAF50),
+                            CircleShape
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Default.Check, null, tint = Color.White)
+                }
+            } else if (offsetX.value < -10f) {
                 Icon(
                     Icons.Default.Star,
                     null,
                     tint = Color(0xFFFFB800),
-                    modifier = Modifier.graphicsLayer(scaleX = scale, scaleY = scale)
+                    modifier = Modifier.align(Alignment.CenterEnd)
+                        .padding(end = 20.dp)
+                        .graphicsLayer(
+                            scaleX = iconScale,
+                            scaleY = iconScale
+                        )
+                        .size(32.dp)
                 )
             }
-            Spacer(Modifier.width(8.dp))
-            Text(todo.content, color = Color.White, maxLines = 1)
+        }
+
+        Surface(
+            modifier = Modifier
+                .offset { IntOffset(offsetX.value.roundToInt(), 0) }
+                .fillMaxSize()
+                .pointerInput(todo.id) {
+                    detectHorizontalDragGestures(
+                        onHorizontalDrag = { change, dragAmount ->
+                            change.consume()
+                            scope.launch {
+                                offsetX.snapTo(
+                                    offsetX.value + dragAmount
+                                )
+                            }
+                        },
+                        onDragEnd = {
+                            scope.launch {
+                                when {
+                                    offsetX.value > 150f -> onComplete()
+                                    offsetX.value < -150f -> onStar()
+                                }
+                                offsetX.animateTo(
+                                    0f,
+                                    spring(
+                                        dampingRatio =
+                                        Spring.DampingRatioMediumBouncy
+                                    )
+                                )
+                            }
+                        }
+                    )
+                },
+            color = if (todo.isStarred)
+                Color(0xFFFFB800).copy(0.15f)
+            else
+                Color.White.copy(0.12f),
+            shape = RoundedCornerShape(14.dp),
+            border = if (todo.isStarred)
+                BorderStroke(
+                    1.dp,
+                    Color(0xFFFFB800).copy(0.4f)
+                )
+            else null
+        ) {
+            Row(
+                Modifier.fillMaxSize()
+                    .padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (todo.isStarred) {
+                    Icon(
+                        Icons.Default.Star,
+                        null,
+                        tint = Color(0xFFFFB800),
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    todo.content,
+                    color = Color.White,
+                    fontSize = 17.sp,
+                    maxLines = 1
+                )
+            }
         }
     }
 }
@@ -446,24 +612,66 @@ fun OriginalAddTodoSheet(
     onDismiss: () -> Unit,
     onSave: () -> Unit
 ) {
-    val state = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val sheetState =
+        rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
     BackHandler { onDismiss() }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = state,
+        sheetState = sheetState,
+        dragHandle = { BottomSheetDefaults.DragHandle() },
         containerColor = Color(0xFF1C1C1E)
     ) {
-        Column(Modifier.padding(24.dp)) {
+        Column(
+            Modifier.padding(24.dp)
+                .padding(bottom = 32.dp)
+        ) {
+            Text(
+                "新建待办事项",
+                style = TextStyle(
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+            )
+            Spacer(Modifier.height(20.dp))
             OutlinedTextField(
                 value = text,
                 onValueChange = onTextChange,
                 modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("想做点什么？") }
+                textStyle = TextStyle(color = Color.White),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = Color(0xFFFFB800),
+                    unfocusedBorderColor = Color.White.copy(0.3f),
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White
+                ),
+                placeholder = {
+                    Text(
+                        "想做点什么？",
+                        color = Color.White.copy(0.4f)
+                    )
+                }
             )
-            Spacer(Modifier.height(16.dp))
-            Button(onClick = onSave, enabled = text.isNotBlank()) {
-                Text("添加")
+            Spacer(Modifier.height(24.dp))
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
+            ) {
+                TextButton(onClick = onDismiss) {
+                    Text("取消", color = Color.White.copy(0.6f))
+                }
+                Spacer(Modifier.width(12.dp))
+                Button(
+                    onClick = onSave,
+                    enabled = text.isNotBlank(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFFFFB800)
+                    )
+                ) {
+                    Text("添加", fontWeight = FontWeight.Bold)
+                }
             }
         }
     }
