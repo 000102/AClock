@@ -36,7 +36,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
@@ -63,7 +62,7 @@ import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.roundToInt
 
-// --- 数据库与业务逻辑 (严格保留) ---
+// --- 数据库逻辑 (保持不变) ---
 val Context.dataStore by preferencesDataStore(name = "settings")
 
 @Entity(tableName = "todos")
@@ -130,7 +129,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun toggleStar(id: Long, current: Boolean) = viewModelScope.launch(Dispatchers.IO) { todoDao.setStarred(id, !current) }
 }
 
-// --- UI 主程序 (全量回归原始视觉) ---
+// --- UI 主程序 (全量视觉回归) ---
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -156,22 +155,20 @@ fun ClockTodoApp() {
         Box(Modifier.fillMaxSize().haze(hazeState)) {
             if (bgUri != null) {
                 Image(rememberAsyncImagePainter(bgUri), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-                Box(Modifier.fillMaxSize().background(Color.Black.copy(0.2f)))
+                Box(Modifier.fillMaxSize().background(Color.Black.copy(0.15f)))
             } else {
                 Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF0F2027), Color(0xFF203A43)))))
             }
         }
 
-        // --- 原始布局结构 3:1 ---
+        // --- 原始布局 3:1 ---
         Row(Modifier.fillMaxSize().padding(32.dp).statusBarsPadding()) {
             // 左侧：时间 (3/4)
             Column(Modifier.weight(0.75f).fillMaxHeight(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-                // HazeChild 玻璃容器
-                Box(Modifier.fillMaxWidth(0.85f).fillMaxHeight(0.6f).clip(RoundedCornerShape(32.dp))
-                    .hazeChild(state = hazeState, shape = RoundedCornerShape(32.dp)) {
-                        blurRadius = 20.dp
-                        tint = Color.White.copy(alpha = 0.12f)
-                    }
+                // 修正 hazeChild 语法
+                Box(Modifier.fillMaxWidth(0.85f).fillMaxHeight(0.6f)
+                    .clip(RoundedCornerShape(32.dp))
+                    .hazeChild(state = hazeState, shape = RoundedCornerShape(32.dp), tint = Color.White.copy(0.12f), blurRadius = 20.dp)
                     .border(1.dp, Color.White.copy(0.2f), RoundedCornerShape(32.dp)),
                     contentAlignment = Alignment.Center
                 ) {
@@ -185,15 +182,12 @@ fun ClockTodoApp() {
 
             // 右侧：待办列表 (1/4)
             Column(Modifier.weight(0.25f).fillMaxHeight().padding(start = 24.dp)) {
-                Box(Modifier.fillMaxSize().clip(RoundedCornerShape(32.dp))
-                    .hazeChild(state = hazeState, shape = RoundedCornerShape(32.dp)) {
-                        blurRadius = 20.dp
-                        tint = Color.White.copy(alpha = 0.1f)
-                    }
+                Box(Modifier.fillMaxSize()
+                    .clip(RoundedCornerShape(32.dp))
+                    .hazeChild(state = hazeState, shape = RoundedCornerShape(32.dp), tint = Color.White.copy(0.1f), blurRadius = 20.dp)
                     .border(1.dp, Color.White.copy(0.15f), RoundedCornerShape(32.dp))
                 ) {
                     Column(Modifier.padding(20.dp)) {
-                        // 标题靠左对齐
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                             Text("待办事项", style = TextStyle(fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White))
                             IconButton(onClick = { launcher.launch(arrayOf("image/*")) }) { Icon(Icons.Default.Image, null, tint = Color.White.copy(0.4f)) }
@@ -220,7 +214,6 @@ fun ClockTodoApp() {
             }
         }
 
-        // --- 弹窗逻辑 (彻底修复：不关 Sheet) ---
         if (viewModel.showSheet) {
             OriginalAddTodoSheet(
                 text = viewModel.inputText,
@@ -242,14 +235,12 @@ fun ClockTodoApp() {
     }
 }
 
-// --- 滑动单项 (还原所有视觉图形) ---
 @Composable
 fun OriginalSwipeItem(todo: TodoItem, onComplete: () -> Unit, onStar: () -> Unit) {
     val offsetX = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
 
     Box(Modifier.fillMaxWidth().height(64.dp)) {
-        // 背景层 (绿色圆圈对勾 / 黄色星星)
         Box(Modifier.fillMaxSize()) {
             if (offsetX.value > 60f) {
                 Box(Modifier.align(Alignment.CenterStart).padding(start = 12.dp).size(36.dp).background(Color(0xFF4CAF50), CircleShape), contentAlignment = Alignment.Center) {
@@ -260,7 +251,6 @@ fun OriginalSwipeItem(todo: TodoItem, onComplete: () -> Unit, onStar: () -> Unit
             }
         }
 
-        // 上层卡片 (优化后的 0 延迟手感)
         Surface(
             modifier = Modifier
                 .offset { IntOffset(offsetX.value.roundToInt(), 0) }
@@ -293,7 +283,6 @@ fun OriginalSwipeItem(todo: TodoItem, onComplete: () -> Unit, onStar: () -> Unit
     }
 }
 
-// --- 底部 Sheet (修复报错，适配键盘) ---
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OriginalAddTodoSheet(text: String, onTextChange: (String) -> Unit, onDismiss: () -> Unit, onSave: () -> Unit) {
@@ -304,8 +293,7 @@ fun OriginalAddTodoSheet(text: String, onTextChange: (String) -> Unit, onDismiss
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         dragHandle = { BottomSheetDefaults.DragHandle() },
-        containerColor = Color(0xFF1C1C1E),
-        windowInsets = WindowInsets.ime
+        containerColor = Color(0xFF1C1C1E)
     ) {
         Column(Modifier.padding(24.dp).padding(bottom = 32.dp)) {
             Text("新建待办事项", style = TextStyle(fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White))
@@ -315,7 +303,6 @@ fun OriginalAddTodoSheet(text: String, onTextChange: (String) -> Unit, onDismiss
                 onValueChange = onTextChange,
                 modifier = Modifier.fillMaxWidth(),
                 textStyle = TextStyle(color = Color.White),
-                // 修复：Material 3 最新语法
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = Color(0xFFFFB800),
                     unfocusedBorderColor = Color.White.copy(0.3f),
