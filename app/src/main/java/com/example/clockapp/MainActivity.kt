@@ -244,164 +244,162 @@ fun ClockTodoApp() {
     Box(
         Modifier
             .fillMaxSize()
-            .pointerInput(Unit) {
-                detectTapGestures(
-                    onDoubleTap = {
-                        launcher.launch(arrayOf("image/*"))
-                    }
-                )
-            }
+            .background(Color.Black)
     ) {
-
-        /* 背景层 */
-        Box(Modifier.fillMaxSize().haze(hazeState)) {
-            if (bgUri != null) {
-                Image(
-                    rememberAsyncImagePainter(bgUri),
-                    null,
-                    Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                )
-                Box(
-                    Modifier.fillMaxSize()
-                        .background(Color.Black.copy(0.15f))
-                )
-            } else {
-                Box(
-                    Modifier.fillMaxSize().background(
-                        Brush.verticalGradient(
-                            listOf(Color(0xFF0F2027), Color(0xFF203A43))
-                        )
-                    )
-                )
-            }
+        if (bgUri != null) {
+            Image(
+                painter = rememberAsyncImagePainter(bgUri),
+                contentDescription = null,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .haze(state = hazeState),
+                contentScale = ContentScale.Crop
+            )
         }
 
-        /* 主内容 */
-        Row(
-            Modifier.fillMaxSize()
-                .padding(32.dp)
+        Column(
+            Modifier
+                .fillMaxSize()
                 .statusBarsPadding()
+                .navigationBarsPadding()
         ) {
-
-            /* 时间区 */
-            Column(
-                Modifier.weight(0.75f).fillMaxHeight(),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp, vertical = 16.dp),
+                horizontalArrangement = Arrangement.End
             ) {
-                Row(verticalAlignment = Alignment.Bottom) {
-                    Text(
-                        SimpleDateFormat("HH:mm", Locale.getDefault())
-                            .format(Date(time)),
-                        style = TextStyle(
-                            fontSize = 180.sp,
-                            fontWeight = FontWeight.Thin,
-                            color = Color.White
-                        )
-                    )
-                    Text(
-                        SimpleDateFormat(":ss", Locale.getDefault())
-                            .format(Date(time)),
-                        style = TextStyle(
-                            fontSize = 50.sp,
-                            fontWeight = FontWeight.ExtraLight,
-                            color = Color.White.copy(0.8f)
-                        ),
-                        modifier = Modifier.padding(
-                            bottom = 32.dp,
-                            start = 12.dp
-                        )
-                    )
-                }
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    SimpleDateFormat(
-                        "yyyy年MM月dd日 EEEE",
-                        Locale.CHINESE
-                    ).format(Date(time)),
-                    style = TextStyle(
-                        fontSize = 28.sp,
-                        fontWeight = FontWeight.Light,
-                        color = Color.White.copy(0.8f)
-                    )
-                )
-            }
-
-            /* 待办区 */
-            Column(
-                Modifier.weight(0.25f)
-                    .fillMaxHeight()
-                    .padding(start = 24.dp)
-            ) {
-                Box(
-                    Modifier.fillMaxSize()
-                        .clip(RoundedCornerShape(32.dp))
+                IconButton(
+                    onClick = { launcher.launch(arrayOf("image/*")) },
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
                         .hazeChild(
                             state = hazeState,
-                            shape = RoundedCornerShape(32.dp),
-                            tint = Color.White.copy(0.1f),
-                            blurRadius = 25.dp
+                            style = dev.chrisbanes.haze.HazeStyle(
+                                backgroundColor = Color.White.copy(0.15f),
+                                blurRadius = 20.dp
+                            )
                         )
                         .border(
                             1.dp,
-                            Color.White.copy(0.15f),
-                            RoundedCornerShape(32.dp)
+                            Color.White.copy(0.3f),
+                            CircleShape
                         )
                 ) {
-                    Column(Modifier.padding(24.dp)) {
-                        Text(
-                            "待办事项",
-                            style = TextStyle(
-                                fontSize = 22.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
-                            )
+                    Icon(
+                        Icons.Default.Image,
+                        "背景",
+                        tint = Color.White
+                    )
+                }
+            }
+
+            Column(
+                Modifier
+                    .weight(1f)
+                    .padding(horizontal = 24.dp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                val sdf = remember {
+                    SimpleDateFormat("HH:mm", Locale.getDefault())
+                }
+                Text(
+                    text = sdf.format(Date(time)),
+                    style = TextStyle(
+                        fontSize = 80.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                )
+                Spacer(Modifier.height(8.dp))
+                val dateSdf = remember {
+                    SimpleDateFormat("yyyy年M月d日 EEEE", Locale.CHINA)
+                }
+                Text(
+                    text = dateSdf.format(Date(time)),
+                    fontSize = 18.sp,
+                    color = Color.White.copy(0.7f)
+                )
+            }
+
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
+                    .padding(bottom = 32.dp)
+                    .heightIn(min = 240.dp)
+                    .clip(RoundedCornerShape(20.dp))
+                    .hazeChild(
+                        state = hazeState,
+                        style = dev.chrisbanes.haze.HazeStyle(
+                            backgroundColor = Color.White.copy(0.15f),
+                            blurRadius = 20.dp
                         )
-                        Spacer(Modifier.height(20.dp))
-
-                        Box(Modifier.weight(1f)) {
-                            if (todos.isEmpty()) {
-                                Text(
-                                    "悠闲的一天，去喝杯茶吧~",
-                                    style = TextStyle(
-                                        color = Color.White.copy(0.25f),
-                                        fontSize = 15.sp
-                                    ),
-                                    modifier = Modifier.align(Alignment.Center)
-                                )
-                            } else {
-                                LazyColumn(
-                                    verticalArrangement =
-                                    Arrangement.spacedBy(12.dp)
-                                ) {
-                                    items(todos, key = { it.id }) { item ->
-                                        OriginalSwipeItem(
-                                            todo = item,
-                                            onComplete = {
-                                                viewModel.complete(item.id)
-                                            },
-                                            onStar = {
-                                                viewModel.toggleStar(
-                                                    item.id,
-                                                    item.isStarred
-                                                )
-                                            }
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        FloatingActionButton(
+                    )
+                    .border(
+                        1.dp,
+                        Color.White.copy(0.3f),
+                        RoundedCornerShape(20.dp)
+                    )
+            ) {
+                if (todos.isEmpty()) {
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 32.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Text(
+                            "悠闲的一天,去喝杯茶吧~",
+                            fontSize = 16.sp,
+                            color = Color.White.copy(0.6f),
+                            modifier = Modifier.padding(horizontal = 24.dp)
+                        )
+                        IconButton(
                             onClick = { viewModel.showSheet = true },
-                            containerColor = Color(0xFFFFB800),
-                            shape = CircleShape,
-                            modifier = Modifier.align(
-                                Alignment.CenterHorizontally
-                            ).padding(top = 16.dp)
+                            modifier = Modifier
+                                .padding(top = 16.dp)
+                                .size(48.dp)
+                                .clip(CircleShape)
+                                .background(Color.White.copy(0.2f))
                         ) {
                             Icon(Icons.Default.Add, null, tint = Color.White)
+                        }
+                    }
+                } else {
+                    LazyColumn(
+                        Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        items(todos, key = { it.id }) { todo ->
+                            OriginalSwipeItem(
+                                todo = todo,
+                                onComplete = { viewModel.complete(todo.id) },
+                                onStar = {
+                                    viewModel.toggleStar(
+                                        todo.id,
+                                        todo.isStarred
+                                    )
+                                }
+                            )
+                        }
+
+                        item {
+                            IconButton(
+                                onClick = { viewModel.showSheet = true },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 8.dp)
+                                    .size(48.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White.copy(0.2f))
+                                    .wrapContentSize(Alignment.Center)
+                            ) {
+                                Icon(Icons.Default.Add, null, tint = Color.White)
+                            }
                         }
                     }
                 }
@@ -419,7 +417,7 @@ fun ClockTodoApp() {
                 shape = RoundedCornerShape(12.dp)
             ) {
                 Text(
-                    "已完成！",
+                    "已完成!",
                     Modifier.padding(
                         horizontal = 24.dp,
                         vertical = 12.dp
@@ -449,15 +447,16 @@ fun ClockTodoApp() {
             AlertDialog(
                 onDismissRequest = {
                     viewModel.showDiscardDialog = false
+                    viewModel.showSheet = true
                 },
-                title = { Text("继续编辑吗？") },
+                title = { Text("继续编辑吗?") },
                 text = { Text("您输入的内容尚未保存。") },
                 confirmButton = {
                     TextButton(onClick = {
                         viewModel.showDiscardDialog = false
                         viewModel.showSheet = true
                     }) {
-                        Text("继续编辑", color = Color(0xFFFFB800))
+                        Text("返回编辑", color = Color(0xFFFFB800))
                     }
                 },
                 dismissButton = {
@@ -493,6 +492,53 @@ fun OriginalSwipeItem(
     }
 
     Box(Modifier.fillMaxWidth().height(64.dp)) {
+        
+        // 左滑背景 - 完成(绿色圆圈+对勾)
+        if (offsetX.value > 0) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .padding(start = 16.dp),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                Box(
+                    Modifier
+                        .size((48 * iconScale).dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF4CAF50)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Default.Check,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size((24 * iconScale).dp)
+                    )
+                }
+            }
+        }
+        
+        // 右滑背景 - 星标(星号)
+        if (offsetX.value < 0) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .padding(end = 16.dp),
+                contentAlignment = Alignment.CenterEnd
+            ) {
+                Icon(
+                    Icons.Default.Star,
+                    contentDescription = null,
+                    tint = Color(0xFFFFB800),
+                    modifier = Modifier
+                        .size((40 * iconScale).dp)
+                        .graphicsLayer {
+                            scaleX = iconScale
+                            scaleY = iconScale
+                        }
+                )
+            }
+        }
 
         Surface(
             modifier = Modifier
@@ -612,7 +658,7 @@ fun OriginalAddTodoSheet(
                     ),
                     placeholder = {
                         Text(
-                            "想做点什么？",
+                            "想做点什么?",
                             color = Color.White.copy(0.4f)
                         )
                     }
