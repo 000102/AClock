@@ -348,8 +348,9 @@ fun ClockTodoApp() {
                         },
                         onDragEnd = {
                             scope.launch {
-                                if (boxOffsetX.value < screenWidthPx * 0.5f) {
-                                    // 滑动超过一半，显示盒子
+                                // 优化：降低阈值从 0.5f 到 0.3f，更容易触发显示
+                                if (boxOffsetX.value < screenWidthPx * 0.7f) {
+                                    // 滑动超过30%，显示盒子
                                     boxOffsetX.animateTo(0f, tween(500))
                                     boxState = TodoBoxState.NORMAL
                                     viewModel.setBoxManuallyHidden(false)
@@ -646,7 +647,8 @@ fun TodoBoxContent(
                                         TodoBoxState.NORMAL -> {
                                             when (dragType) {
                                                 "expand" -> {
-                                                    if (expandProgress.value > 0.3f) {
+                                                    // 优化：降低阈值从 0.3f 到 0.2f，更容易展开
+                                                    if (expandProgress.value > 0.2f) {
                                                         // 展开到全屏
                                                         expandProgress.animateTo(1f, tween(300))
                                                         onStateChange(TodoBoxState.EXPANDED)
@@ -656,7 +658,8 @@ fun TodoBoxContent(
                                                     }
                                                 }
                                                 "hide" -> {
-                                                    if (dragOffsetX.value > screenWidthPx * 0.5f && isLandscape) {
+                                                    // 优化：降低阈值从 0.5f 到 0.3f，更容易隐藏
+                                                    if (dragOffsetX.value > screenWidthPx * 0.3f && isLandscape) {
                                                         // 隐藏
                                                         dragOffsetX.animateTo(screenWidthPx, tween(300))
                                                         onStateChange(TodoBoxState.HIDDEN)
@@ -673,7 +676,8 @@ fun TodoBoxContent(
                                             }
                                         }
                                         TodoBoxState.EXPANDED -> {
-                                            if (expandProgress.value < 0.7f) {
+                                            // 优化：降低阈值从 0.7f 到 0.8f（即滑动20%即可触发收起）
+                                            if (expandProgress.value < 0.8f) {
                                                 // 收起到正常
                                                 expandProgress.animateTo(0f, tween(300))
                                                 delay(300)
