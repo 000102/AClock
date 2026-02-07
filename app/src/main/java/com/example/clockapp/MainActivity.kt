@@ -11,7 +11,6 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -79,15 +78,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.geometry.CornerRadius as GeometryCornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -96,7 +91,8 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.activity.compose.setContent
+androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
@@ -118,7 +114,6 @@ import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import coil.compose.rememberAsyncImagePainter
-import com.skydoves.cloudy.CloudyState
 import com.skydoves.cloudy.cloudy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -149,7 +144,8 @@ data class TodoItem(
     val content: String,
     val createdAt: Long = System.currentTimeMillis(),
     val isCompleted: Boolean = false,
-    val isStarred: Boolean = false
+    val isStarred: 
+Boolean = false
 )
 
 // ==================== Room DAO ====================
@@ -166,7 +162,8 @@ interface TodoDao {
     
     @Query("UPDATE todos SET isCompleted = 1 WHERE id = :id")
     suspend fun markAsCompleted(id: Long)
-    
+ 
+   
     @Query("UPDATE todos SET isStarred = :starred WHERE id = :id")
     suspend fun setStarred(id: Long, starred: Boolean)
     
@@ -182,21 +179,25 @@ interface TodoDao {
 abstract class AppDatabase : RoomDatabase() {
     abstract fun todoDao(): TodoDao
     
-    companion object {
+    
+companion object {
         @Volatile
-        private var INSTANCE: AppDatabase? = null
+        private var INSTANCE: AppDatabase?
+= null
         
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
-                    "clock_todo_database"
+    
+                "clock_todo_database"
                 )
                     .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance
-                instance
+          
+      instance
             }
         }
     }
@@ -216,7 +217,8 @@ class ClockApplication : Application() {
 // ==================== ViewModel ====================
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     
-    private val todoDao = (application as ClockApplication).database.todoDao()
+ 
+   private val todoDao = (application as ClockApplication).database.todoDao()
     private val dataStore = application.dataStore
     
     private val _currentTime = MutableStateFlow(System.currentTimeMillis())
@@ -230,7 +232,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _showBottomSheet = MutableStateFlow(false)
     val showBottomSheet: StateFlow<Boolean> = _showBottomSheet.asStateFlow()
     
-    private val _showDiscardDialog = MutableStateFlow(false)
+    private val _showDiscardDialog 
+= MutableStateFlow(false)
     val showDiscardDialog: StateFlow<Boolean> = _showDiscardDialog.asStateFlow()
     
     private val _inputText = MutableStateFlow("")
@@ -242,7 +245,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             while (true) {
                 _currentTime.value = System.currentTimeMillis()
-                delay(1000)
+         
+       delay(1000)
             }
         }
         
@@ -253,18 +257,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     
     private suspend fun loadSavedBackgroundUri() {
         dataStore.data.map { preferences ->
-            preferences[BACKGROUND_URI_KEY]
+         
+   preferences[BACKGROUND_URI_KEY]
         }.first()?.let { uriString ->
             try {
                 val uri = Uri.parse(uriString)
                 val hasPermission = try {
                     getApplication<Application>().contentResolver.openInputStream(uri)?.close()
-                    true
+              
+      true
                 } catch (e: Exception) {
                     false
                 }
                 if (hasPermission) {
-                    _backgroundUri.value = uri
+                    
+_backgroundUri.value = uri
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -274,33 +281,39 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     
     fun setBackgroundUri(uri: Uri?) {
         _backgroundUri.value = uri
-        
+     
+   
         viewModelScope.launch {
             if (uri != null) {
                 try {
                     val takeFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION
                     getApplication<Application>().contentResolver.takePersistableUriPermission(
-                        uri,
+            
+            uri,
                         takeFlags
                     )
                     
                     dataStore.edit { preferences ->
-                        preferences[BACKGROUND_URI_KEY] = uri.toString()
+ 
+                       preferences[BACKGROUND_URI_KEY] = uri.toString()
                     }
                 } catch (e: Exception) {
                     e.printStackTrace()
-                    Toast.makeText(
+               
+     Toast.makeText(
                         getApplication(),
                         "无法获取图片持久化权限",
                         Toast.LENGTH_SHORT
                     ).show()
-                }
+   
+             }
             } else {
                 dataStore.edit { preferences ->
                     preferences.remove(BACKGROUND_URI_KEY)
                 }
             }
-        }
+      
+  }
     }
     
     fun addTodo(content: String) {
@@ -313,13 +326,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     
     fun completeTodo(id: Long) {
         viewModelScope.launch(Dispatchers.IO) {
-            todoDao.markAsCompleted(id)
+          
+  todoDao.markAsCompleted(id)
             withContext(Dispatchers.Main) {
                 Toast.makeText(
                     getApplication(),
                     "已完成一项待办",
                     Toast.LENGTH_SHORT
-                ).show()
+         
+       ).show()
             }
         }
     }
@@ -332,7 +347,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
     
     fun showAddTodoSheet() {
-        _showBottomSheet.value = true
+       
+ _showBottomSheet.value = true
     }
     
     fun hideAddTodoSheet() {
@@ -348,7 +364,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _showDiscardDialog.value = true
     }
     
-    fun hideDiscardDialog() {
+    fun hideDiscardDialog() 
+{
         _showDiscardDialog.value = false
     }
     
@@ -359,7 +376,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         } else {
             _showBottomSheet.value = false
             true
-        }
+  
+      }
     }
     
     fun discardChanges() {
@@ -377,7 +395,8 @@ private val DarkColorScheme = darkColorScheme(
     background = Color(0xFF121212),
     surface = Color(0xFF1E1E1E),
     onPrimary = Color.Black,
-    onSecondary = Color.Black,
+   
+ onSecondary = Color.Black,
     onTertiary = Color.Black,
     onBackground = Color.White,
     onSurface = Color.White,
@@ -399,7 +418,8 @@ private val LightColorScheme = lightColorScheme(
 @Composable
 fun ClockTodoTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    dynamicColor: Boolean = true,
+    dynamicColor: Boolean = 
+true,
     content: @Composable () -> Unit
 ) {
     val colorScheme = when {
@@ -412,8 +432,8 @@ fun ClockTodoTheme(
     }
 
     MaterialTheme(
-        colorScheme = colorScheme,
-        typography = Typography,
+  
+      colorScheme = colorScheme,
         content = content
     )
 }
@@ -426,7 +446,8 @@ class MainActivity : ComponentActivity() {
         setupFullScreen()
         
         setContent {
-            ClockTodoTheme {
+            
+ClockTodoTheme {
                 ClockTodoApp()
             }
         }
@@ -437,7 +458,8 @@ class MainActivity : ComponentActivity() {
         
         window.setFlags(
             WindowManager.LayoutParams.FLAG_FULLSCREEN,
-            WindowManager.LayoutParams.FLAG_FULLSCREEN
+           
+ WindowManager.LayoutParams.FLAG_FULLSCREEN
         )
         
         window.decorView.systemUiVisibility = (
@@ -446,7 +468,8 @@ class MainActivity : ComponentActivity() {
             or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
             or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
             or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-            or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+         
+   or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
             or View.SYSTEM_UI_FLAG_LOW_PROFILE
         )
         
@@ -457,7 +480,8 @@ class MainActivity : ComponentActivity() {
     }
     
     override fun onWindowFocusChanged(hasFocus: Boolean) {
-        super.onWindowFocusChanged(hasFocus)
+ 
+       super.onWindowFocusChanged(hasFocus)
         if (hasFocus) {
             setupFullScreen()
         }
@@ -475,7 +499,8 @@ fun ClockTodoApp() {
             (context.applicationContext as ClockApplication)
         )
     )
-    
+  
+  
     val currentTime by viewModel.currentTime.collectAsState()
     val todos by viewModel.todos.collectAsState(initial = emptyList())
     val backgroundUri by viewModel.backgroundUri.collectAsState()
@@ -485,7 +510,8 @@ fun ClockTodoApp() {
     
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
-    ) { uri: Uri? ->
+    ) { uri: Uri?
+->
         uri?.let {
             viewModel.setBackgroundUri(it)
         }
@@ -496,48 +522,58 @@ fun ClockTodoApp() {
         
         Scaffold(
             topBar = {
-                TopAppBar(
+                
+TopAppBar(
                     title = { Text("") },
                     colors = TopAppBarDefaults.topAppBarColors(
                         containerColor = Color.Transparent
                     ),
-                    actions = {
+        
+            actions = {
                         IconButton(
                             onClick = {
-                                imagePickerLauncher.launch(arrayOf("image/*"))
+                                
+imagePickerLauncher.launch(arrayOf("image/*"))
                             }
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Image,
+                   
+             imageVector = Icons.Default.Image,
                                 contentDescription = "更换背景",
                                 tint = Color.White
-                            )
+                 
+           )
                         }
                     }
                 )
             },
             containerColor = Color.Transparent
-        ) { paddingValues ->
+   
+     ) { paddingValues ->
             Row(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(paddingValues)
             ) {
-                ClockSection(
+         
+       ClockSection(
                     currentTime = currentTime,
                     modifier = Modifier
                         .fillMaxHeight()
                         .weight(0.75f)
-                )
+ 
+               )
                 
                 TodoSection(
                     todos = todos,
                     onAddClick = { viewModel.showAddTodoSheet() },
-                    onComplete = { viewModel.completeTodo(it) },
+       
+             onComplete = { viewModel.completeTodo(it) },
                     onStar = { id, starred -> viewModel.toggleStar(id, starred) },
                     modifier = Modifier
                         .fillMaxHeight()
-                        .weight(0.25f)
+         
+               .weight(0.25f)
                 )
             }
         }
@@ -545,19 +581,22 @@ fun ClockTodoApp() {
         if (showBottomSheet) {
             AddTodoBottomSheet(
                 inputText = inputText,
-                onInputChange = { viewModel.updateInputText(it) },
+ 
+               onInputChange = { viewModel.updateInputText(it) },
                 onDismiss = { viewModel.tryCloseBottomSheet() },
                 onSave = {
                     viewModel.addTodo(inputText)
                     viewModel.hideAddTodoSheet()
-                },
+   
+             },
                 onShowDiscardDialog = { viewModel.showDiscardDialog() }
             )
         }
         
         if (showDiscardDialog) {
             DiscardChangesDialog(
-                onConfirm = { viewModel.discardChanges() },
+                onConfirm 
+= { viewModel.discardChanges() },
                 onDismiss = { viewModel.hideDiscardDialog() }
             )
         }
@@ -570,31 +609,37 @@ fun BackgroundImage(uri: Uri?) {
         if (uri != null) {
             Image(
                 painter = rememberAsyncImagePainter(
-                    model = uri,
+ 
+                   model = uri,
                     contentScale = ContentScale.Crop
                 ),
                 contentDescription = "背景图片",
                 modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
+     
+           contentScale = ContentScale.Crop
             )
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(Color.Black.copy(alpha = 0.25f))
-            )
+   
+         )
         } else {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(
-                        brush = Brush.verticalGradient(
+           
+             brush = Brush.verticalGradient(
                             colors = listOf(
                                 Color(0xFF0D1B2A),
-                                Color(0xFF1B263B),
+                       
+         Color(0xFF1B263B),
                                 Color(0xFF415A77)
                             )
                         )
-                    )
+       
+             )
             )
         }
     }
@@ -613,7 +658,8 @@ fun ClockSection(
     
     Box(
         modifier = modifier
-            .fillMaxSize()
+     
+       .fillMaxSize()
             .padding(32.dp),
         contentAlignment = Alignment.Center
     ) {
@@ -622,33 +668,39 @@ fun ClockSection(
             modifier = Modifier
                 .fillMaxWidth(0.9f)
                 .fillMaxHeight(0.7f),
-            cornerRadius = 24.dp,
+ 
+           cornerRadius = 24.dp,
             blurRadius = 25
         ) {
             Column(
                 modifier = Modifier.fillMaxSize(),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
+                
+verticalArrangement = Arrangement.Center
             ) {
                 // 日期
                 Text(
                     text = dateFormat.format(Date(currentTime)),
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = Color.White.copy(alpha = 0.75f),
+                    style = androidx.compose.material3.MaterialTheme.typography.headlineSmall,
+        
+            color = Color.White.copy(alpha = 0.75f),
                     fontWeight = FontWeight.Medium
                 )
                 
                 Spacer(modifier = Modifier.height(24.dp))
-                
+            
+    
                 // 时间
                 Text(
                     text = timeFormat.format(Date(currentTime)),
                     style = TextStyle(
-                        fontSize = 96.sp,
+                   
+     fontSize = 96.sp,
                         fontWeight = FontWeight.Light,
                         color = Color.White.copy(alpha = 0.95f),
                         letterSpacing = 2.sp
-                    )
+             
+       )
                 )
             }
         }
@@ -666,7 +718,8 @@ fun CloudyFrostedGlassContainer(
     content: @Composable () -> Unit
 ) {
     Box(
-        modifier = modifier
+        
+modifier = modifier
             .clip(RoundedCornerShape(cornerRadius))
     ) {
         // 使用 Cloudy 实现模糊效果
@@ -674,7 +727,8 @@ fun CloudyFrostedGlassContainer(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.White.copy(alpha = 0.08f))
-                .cloudy(
+              
+  .cloudy(
                     radius = blurRadius,
                     key1 = Unit // 用于触发重新模糊
                 )
@@ -682,37 +736,45 @@ fun CloudyFrostedGlassContainer(
         
         // 边框和光泽效果
         Box(
-            modifier = Modifier
+   
+         modifier = Modifier
                 .fillMaxSize()
                 .drawWithContent {
                     drawContent()
                     
-                    // 顶部高光
+                
+    // 顶部高光
                     drawRect(
                         color = Color.White.copy(alpha = 0.2f),
                         topLeft = Offset(0f, 0f),
-                        size = androidx.compose.ui.geometry.Size(size.width, 1f)
+                    
+    size = androidx.compose.ui.geometry.Size(size.width, 1f)
                     )
                     
                     // 左侧高光
                     drawRect(
-                        color = Color.White.copy(alpha = 0.1f),
+            
+            color = Color.White.copy(alpha = 0.1f),
                         topLeft = Offset(0f, 0f),
                         size = androidx.compose.ui.geometry.Size(1f, size.height)
                     )
-                    
+          
+          
                     // 边框
                     drawRoundRect(
                         color = Color.White.copy(alpha = 0.15f),
-                        topLeft = Offset(0f, 0f),
+                     
+   topLeft = Offset(0f, 0f),
                         size = androidx.compose.ui.geometry.Size(size.width, size.height),
                         cornerRadius = androidx.compose.ui.geometry.CornerRadius(
                             cornerRadius.toPx(),
-                            cornerRadius.toPx()
+             
+               cornerRadius.toPx()
                         ),
                         style = Stroke(width = 1f)
                     )
-                }
+             
+   }
         )
         
         // 内容层
@@ -727,7 +789,8 @@ fun CloudyFrostedGlassContainer(
 
 /**
  * 待办事项区域
- */
+ 
+*/
 @Composable
 fun TodoSection(
     todos: List<TodoItem>,
@@ -742,47 +805,56 @@ fun TodoSection(
             .padding(16.dp)
     ) {
         CloudyFrostedGlassContainer(
-            modifier = Modifier.fillMaxSize(),
+            modifier 
+= Modifier.fillMaxSize(),
             cornerRadius = 20.dp,
             blurRadius = 20
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(16.dp)
+            
+        .padding(16.dp)
             ) {
                 Text(
                     text = "待办事项",
                     style = MaterialTheme.typography.titleLarge,
-                    color = Color.White.copy(alpha = 0.9f),
+                   
+ color = Color.White.copy(alpha = 0.9f),
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.padding(bottom = 16.dp)
                 )
                 
-                if (todos.isEmpty()) {
+                if 
+(todos.isEmpty()) {
                     EmptyTodoState(
                         modifier = Modifier.weight(1f)
                     )
                 } else {
-                    TodoListWithSwipe(
+               
+     TodoListWithSwipe(
                         todos = todos,
                         onComplete = onComplete,
                         onStar = onStar,
-                        modifier = Modifier.weight(1f)
+                 
+       modifier = Modifier.weight(1f)
                     )
                 }
                 
                 FloatingActionButton(
                     onClick = onAddClick,
-                    modifier = Modifier
+ 
+                   modifier = Modifier
                         .align(Alignment.CenterHorizontally)
                         .padding(top = 16.dp),
                     containerColor = Color(0xFFFFB800),
-                    shape = CircleShape
+       
+             shape = CircleShape
                 ) {
                     Icon(
                         imageVector = Icons.Default.Add,
-                        contentDescription = "添加待办",
+                      
+  contentDescription = "添加待办",
                         tint = Color.White
                     )
                 }
@@ -794,7 +866,8 @@ fun TodoSection(
 @Composable
 fun EmptyTodoState(modifier: Modifier = Modifier) {
     Box(
-        modifier = modifier.fillMaxSize(),
+ 
+       modifier = modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
     ) {
         Text(
@@ -802,7 +875,8 @@ fun EmptyTodoState(modifier: Modifier = Modifier) {
             style = MaterialTheme.typography.bodyLarge,
             color = Color.White.copy(alpha = 0.55f),
             textAlign = TextAlign.Center,
-            lineHeight = 28.sp
+          
+  lineHeight = 28.sp
         )
     }
 }
@@ -822,14 +896,16 @@ fun TodoListWithSwipe(
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         items(
-            items = todos,
+            items 
+= todos,
             key = { it.id }
         ) { todo ->
             SwipeableTodoItem(
                 todo = todo,
                 onComplete = { onComplete(todo.id) },
                 onStar = { onStar(todo.id, todo.isStarred) }
-            )
+ 
+           )
         }
     }
 }
@@ -849,7 +925,8 @@ fun SwipeableTodoItem(
     
     var offsetX by remember { mutableFloatStateOf(0f) }
     val animatedOffsetX by androidx.compose.animation.core.animateFloatAsState(
-        targetValue = offsetX,
+      
+  targetValue = offsetX,
         animationSpec = androidx.compose.animation.core.tween(200),
         label = "offset"
     )
@@ -861,52 +938,64 @@ fun SwipeableTodoItem(
     ) {
         // 背景层 - 根据滑动方向显示不同图标
         if (animatedOffsetX > 0) {
-            // 左滑背景 - 黄色实心☆（切换收藏状态）
+  
+          // 左滑背景 - 黄色实心☆（切换收藏状态）
             StarBackground(
                 progress = (animatedOffsetX / swipeThreshold).coerceIn(0f, 1f),
                 isStarred = todo.isStarred, // 传递当前状态
                 modifier = Modifier.fillMaxSize()
             )
-        } else if (animatedOffsetX < 0) {
+    
+    } else if (animatedOffsetX < 0) {
             // 右滑背景 - 黄色圆形 + 白色对勾
             CheckBackground(
                 progress = (animatedOffsetX.absoluteValue / swipeThreshold).coerceIn(0f, 1f),
                 modifier = Modifier.fillMaxSize()
             )
         }
-        
+  
+      
         // 前景层 - 待办卡片
         TodoItemCardWithStar(
             todo = todo,
             modifier = Modifier
                 .fillMaxSize()
                 .offset { IntOffset(animatedOffsetX.roundToInt(), 0) }
-                .pointerInput(Unit) {
+           
+     .pointerInput(Unit) {
                     detectHorizontalDragGestures(
                         onDragEnd = {
                             when {
-                                offsetX > swipeThreshold -> {
+                   
+             offsetX > swipeThreshold -> {
                                     // 左滑超过阈值 - 切换收藏状态（可取消）
                                     onStar()
-                                    offsetX = 0f
+        
+                            offsetX = 0f
                                 }
                                 offsetX < -swipeThreshold -> {
-                                    // 右滑超过阈值 - 完成待办
+  
+                                  // 右滑超过阈值 - 完成待办
                                     onComplete()
-                                    offsetX = 0f
+                           
+         offsetX = 0f
                                 }
                                 else -> {
-                                    // 未达到阈值，回弹
+                       
+             // 未达到阈值，回弹
                                     offsetX = 0f
                                 }
-                            }
+                
+            }
                         },
                         onHorizontalDrag = { change, dragAmount ->
                             change.consume()
-                            val newOffset = offsetX + dragAmount
+       
+                     val newOffset = offsetX + dragAmount
                             // 限制滑动范围
                             offsetX = newOffset.coerceIn(-swipeThreshold * 1.5f, swipeThreshold * 1.5f)
-                        }
+          
+              }
                     )
                 }
         )
@@ -923,7 +1012,8 @@ fun StarBackground(
     modifier: Modifier = Modifier
 ) {
     Box(
-        modifier = modifier,
+        modifier = 
+modifier,
         contentAlignment = Alignment.CenterStart
     ) {
         AnimatedVisibility(
@@ -932,58 +1022,73 @@ fun StarBackground(
             exit = fadeOut()
         ) {
             Row(
-                modifier = Modifier.padding(start = 24.dp),
+            
+    modifier = Modifier.padding(start = 24.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(
                     modifier = Modifier.size(40.dp * progress.coerceIn(0.5f, 1f)),
-                    contentAlignment = Alignment.Center
+                    
+contentAlignment = Alignment.Center
                 ) {
                     if (isStarred) {
                         // 已收藏状态 - 显示空心星或减号，表示可以取消
                         Icon(
-                            imageVector = Icons.Default.Star,
+        
+                    imageVector = Icons.Default.Star,
                             contentDescription = "取消收藏",
                             tint = Color(0xFFFFB800).copy(alpha = progress),
-                            modifier = Modifier.size(32.dp)
+                
+            modifier = Modifier.size(32.dp)
                         )
                     } else {
                         // 未收藏状态 - 显示实心星，表示可以添加
-                        Canvas(modifier = Modifier.fillMaxSize()) {
+             
+           Canvas(modifier = Modifier.fillMaxSize()) {
                             val centerX = size.width / 2
                             val centerY = size.height / 2
-                            val outerRadius = size.width / 2
+                    
+        val outerRadius = size.width / 2
                             val innerRadius = outerRadius * 0.4f
                             
-                            val path = Path()
+                          
+  val path = Path()
                             for (i in 0 until 10) {
                                 val angle = kotlin.math.PI / 2 + i * kotlin.math.PI / 5
-                                val radius = if (i % 2 == 0) outerRadius else innerRadius
+                  
+              val radius = if (i % 2 == 0) outerRadius else innerRadius
                                 val x = centerX + (kotlin.math.cos(angle) * radius).toFloat()
-                                val y = centerY - (kotlin.math.sin(angle) * radius).toFloat()
+                                val y = centerY 
+- (kotlin.math.sin(angle) * radius).toFloat()
                                 if (i == 0) {
                                     path.moveTo(x, y)
-                                } else {
+                        
+        } else {
                                     path.lineTo(x, y)
                                 }
-                            }
+                     
+       }
                             path.close()
                             
                             drawPath(
-                                path = path,
+         
+                       path = path,
                                 color = Color(0xFFFFB800).copy(alpha = progress)
                             )
-                        }
+           
+             }
                     }
                 }
                 
                 Spacer(modifier = Modifier.width(8.dp))
                 
-                Text(
+ 
+               Text(
                     text = if (isStarred) "取消标记" else "标记重点",
                     color = Color(0xFFFFB800).copy(alpha = progress),
                     fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium
+             
+       fontWeight = FontWeight.Medium
                 )
             }
         }
@@ -1002,38 +1107,45 @@ fun CheckBackground(
         modifier = modifier,
         contentAlignment = Alignment.CenterEnd
     ) {
-        AnimatedVisibility(
+ 
+       AnimatedVisibility(
             visible = progress > 0.1f,
             enter = fadeIn(),
             exit = fadeOut()
         ) {
             Row(
                 modifier = Modifier.padding(end = 24.dp),
-                verticalAlignment = Alignment.CenterVertically
+        
+        verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
                     text = "完成",
                     color = Color(0xFFFFB800).copy(alpha = progress),
-                    fontSize = 14.sp,
+               
+     fontSize = 14.sp,
                     fontWeight = FontWeight.Medium
                 )
                 
                 Spacer(modifier = Modifier.width(8.dp))
                 
-                Box(
+     
+           Box(
                     modifier = Modifier
                         .size(44.dp * progress.coerceIn(0.5f, 1f))
                         .clip(CircleShape)
-                        .background(Color(0xFFFFB800)),
+                
+        .background(Color(0xFFFFB800)),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Default.Check,
-                        contentDescription = "完成",
+       
+                 contentDescription = "完成",
                         tint = Color.White,
                         modifier = Modifier.size(24.dp)
                     )
-                }
+         
+       }
             }
         }
     }
@@ -1052,7 +1164,8 @@ fun TodoItemCardWithStar(
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (todo.isStarred) {
-                Color(0xFFFFB800).copy(alpha = 0.15f)
+  
+              Color(0xFFFFB800).copy(alpha = 0.15f)
             } else {
                 Color.White.copy(alpha = 0.2f)
             }
@@ -1060,49 +1173,60 @@ fun TodoItemCardWithStar(
     ) {
         Row(
             modifier = Modifier
-                .fillMaxSize()
+     
+           .fillMaxSize()
                 .padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             // 如果已收藏，显示黄色☆
             if (todo.isStarred) {
                 Box(
-                    modifier = Modifier.size(20.dp),
+     
+               modifier = Modifier.size(20.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Canvas(modifier = Modifier.fillMaxSize()) {
-                        val centerX = size.width / 2
+                     
+   val centerX = size.width / 2
                         val centerY = size.height / 2
                         val outerRadius = size.width / 2
                         val innerRadius = outerRadius * 0.4f
-                        
+     
+                   
                         val path = Path()
                         for (i in 0 until 10) {
-                            val angle = kotlin.math.PI / 2 + i * kotlin.math.PI / 5
+                        
+    val angle = kotlin.math.PI / 2 + i * kotlin.math.PI / 5
                             val radius = if (i % 2 == 0) outerRadius else innerRadius
                             val x = centerX + (kotlin.math.cos(angle) * radius).toFloat()
-                            val y = centerY - (kotlin.math.sin(angle) * radius).toFloat()
+           
+                 val y = centerY - (kotlin.math.sin(angle) * radius).toFloat()
                             if (i == 0) {
                                 path.moveTo(x, y)
-                            } else {
+           
+                 } else {
                                 path.lineTo(x, y)
                             }
-                        }
+                    
+    }
                         path.close()
                         
                         drawPath(
-                            path = path,
+                        
+    path = path,
                             color = Color(0xFFFFB800)
                         )
                     }
                 }
-                Spacer(modifier = Modifier.width(12.dp))
+    
+            Spacer(modifier = Modifier.width(12.dp))
             }
             
             Text(
                 text = todo.content,
                 style = MaterialTheme.typography.bodyLarge,
-                color = Color.White.copy(alpha = 0.9f),
+              
+  color = Color.White.copy(alpha = 0.9f),
                 modifier = Modifier.weight(1f)
             )
         }
@@ -1122,7 +1246,8 @@ fun AddTodoBottomSheet(
     onShowDiscardDialog: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(
-        skipPartiallyExpanded = true
+     
+   skipPartiallyExpanded = true
     )
     val scope = rememberCoroutineScope()
     val colorScheme = MaterialTheme.colorScheme
@@ -1133,7 +1258,8 @@ fun AddTodoBottomSheet(
         } else {
             scope.launch {
                 sheetState.hide()
-                onDismiss()
+       
+         onDismiss()
             }
         }
     }
@@ -1143,7 +1269,8 @@ fun AddTodoBottomSheet(
             if (inputText.isNotBlank()) {
                 onShowDiscardDialog()
             } else {
-                onDismiss()
+     
+           onDismiss()
             }
         },
         sheetState = sheetState,
@@ -1152,106 +1279,128 @@ fun AddTodoBottomSheet(
     ) {
         Column(
             modifier = Modifier
-                .fillMaxWidth()
+          
+      .fillMaxWidth()
                 .padding(24.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
-            ) {
+   
+         ) {
                 Text(
                     text = "新建待办",
-                    style = MaterialTheme.typography.headlineSmall,
+                    style = androidx.compose.material3.MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold,
-                    color = colorScheme.onSurface // 使用主题色
+        
+            color = colorScheme.onSurface // 使用主题色
                 )
                 
                 IconButton(
                     onClick = {
-                        if (inputText.isNotBlank()) {
+              
+          if (inputText.isNotBlank()) {
                             onShowDiscardDialog()
                         } else {
                             scope.launch {
-                                sheetState.hide()
+     
+                           sheetState.hide()
                                 onDismiss()
                             }
-                        }
+             
+           }
                     }
                 ) {
                     Icon(
                         imageVector = Icons.Default.Close,
-                        contentDescription = "关闭",
+      
+                  contentDescription = "关闭",
                         tint = colorScheme.onSurface // 使用主题色
                     )
                 }
             }
-            
+    
+        
             Spacer(modifier = Modifier.height(16.dp))
             
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),
-                color = colorScheme.surfaceVariant // 使用主题色
+                color = 
+colorScheme.surfaceVariant // 使用主题色
             ) {
                 BasicTextField(
                     value = inputText,
                     onValueChange = onInputChange,
                     modifier = Modifier
-                        .fillMaxWidth()
+   
+                     .fillMaxWidth()
                         .padding(16.dp),
                     textStyle = MaterialTheme.typography.bodyLarge.copy(
                         color = colorScheme.onSurface // 使用主题色
-                    ),
+     
+               ),
                     decorationBox = { innerTextField ->
                         if (inputText.isEmpty()) {
                             Text(
-                                text = "输入待办事项...",
+       
+                         text = "输入待办事项...",
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = colorScheme.onSurfaceVariant // 使用主题色
-                            )
+   
+                         )
                         }
                         innerTextField()
                     }
-                )
+       
+         )
             }
             
             Spacer(modifier = Modifier.height(24.dp))
             
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End
+           
+     horizontalArrangement = Arrangement.End
             ) {
                 TextButton(
                     onClick = {
                         if (inputText.isNotBlank()) {
-                            onShowDiscardDialog()
+                
+            onShowDiscardDialog()
                         } else {
                             scope.launch {
                                 sheetState.hide()
-                                onDismiss()
+ 
+                               onDismiss()
                             }
                         }
-                    }
+                 
+   }
                 ) {
                     Text("取消", color = colorScheme.primary) // 使用主题色
                 }
                 
                 Spacer(modifier = Modifier.width(8.dp))
-                
+     
+           
                 Button(
                     onClick = {
                         scope.launch {
-                            sheetState.hide()
+                          
+  sheetState.hide()
                             onSave()
                         }
                     },
                     enabled = inputText.isNotBlank(),
-                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+    
+                colors = androidx.compose.material3.ButtonDefaults.buttonColors(
                         containerColor = colorScheme.primary, // 使用主题色
                         contentColor = colorScheme.onPrimary
                     )
-                ) {
+        
+        ) {
                     Text("保存")
                 }
             }
@@ -1263,7 +1412,8 @@ fun AddTodoBottomSheet(
 
 @Composable
 fun DiscardChangesDialog(
-    onConfirm: () -> Unit,
+    
+onConfirm: () -> Unit,
     onDismiss: () -> Unit
 ) {
     val colorScheme = MaterialTheme.colorScheme
@@ -1274,21 +1424,24 @@ fun DiscardChangesDialog(
         title = {
             Text(
                 text = "是否放弃更改？",
-                style = MaterialTheme.typography.headlineSmall,
+            
+    style = androidx.compose.material3.MaterialTheme.typography.headlineSmall,
                 color = colorScheme.onSurface
             )
         },
         text = {
             Text(
                 "您有未保存的内容，确定要放弃吗？",
-                color = colorScheme.onSurfaceVariant
+                color = 
+colorScheme.onSurfaceVariant
             )
         },
         confirmButton = {
             TextButton(
                 onClick = onConfirm,
                 colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
-                    contentColor = colorScheme.error // 使用主题错误色
+                    contentColor = 
+colorScheme.error // 使用主题错误色
                 )
             ) {
                 Text("放弃")
@@ -1296,13 +1449,15 @@ fun DiscardChangesDialog(
         },
         dismissButton = {
             TextButton(
-                onClick = onDismiss,
+           
+     onClick = onDismiss,
                 colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
                     contentColor = colorScheme.primary
                 )
             ) {
                 Text("继续编辑")
-            }
+        
+    }
         }
     )
 }
