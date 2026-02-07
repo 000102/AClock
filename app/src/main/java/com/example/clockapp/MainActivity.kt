@@ -14,6 +14,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -29,7 +30,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -52,6 +52,9 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.room.*
 import coil.compose.rememberAsyncImagePainter
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.haze
+import dev.chrisbanes.haze.hazeChild
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
@@ -60,7 +63,7 @@ import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.roundToInt
 
-// --- 数据存储与业务逻辑 ---
+// --- 数据库与业务逻辑 (严格保留) ---
 val Context.dataStore by preferencesDataStore(name = "settings")
 
 @Entity(tableName = "todos")
@@ -112,8 +115,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setBackground(uri: Uri) {
         _bgUri.value = uri
         viewModelScope.launch { 
-            getApplication<Application>().contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            getApplication<Application>().dataStore.edit { it[BACKGROUND_KEY] = uri.toString() } 
+            try {
+                getApplication<Application>().contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                getApplication<Application>().dataStore.edit { it[BACKGROUND_KEY] = uri.toString() } 
+            } catch (e: Exception) { e.printStackTrace() }
         }
     }
     fun saveTodo() {
@@ -125,7 +130,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun toggleStar(id: Long, current: Boolean) = viewModelScope.launch(Dispatchers.IO) { todoDao.setStarred(id, !current) }
 }
 
-// --- UI 主框架 ---
+// --- UI 主程序 (全量回归原始视觉) ---
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -143,53 +148,70 @@ fun ClockTodoApp() {
     val bgUri by viewModel.bgUri.collectAsState()
     val time by viewModel.currentTime.collectAsState()
     val todos by viewModel.todos.collectAsState()
+    val hazeState = remember { HazeState() }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { it?.let { viewModel.setBackground(it) } }
 
     Box(Modifier.fillMaxSize()) {
-        // 背景层
-        if (bgUri != null) {
-            Image(rememberAsyncImagePainter(bgUri), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-            Box(Modifier.fillMaxSize().background(Color.Black.copy(0.2f)))
-        } else {
-            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF0F2027), Color(0xFF203A43)))))
+        // --- 背景层应用 Haze ---
+        Box(Modifier.fillMaxSize().haze(hazeState)) {
+            if (bgUri != null) {
+                Image(rememberAsyncImagePainter(bgUri), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                Box(Modifier.fillMaxSize().background(Color.Black.copy(0.2f)))
+            } else {
+                Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF0F2027), Color(0xFF203A43)))))
+            }
         }
 
+        // --- 原始布局结构 3:1 ---
         Row(Modifier.fillMaxSize().padding(32.dp).statusBarsPadding()) {
-            // 左侧：时间大尺寸 (占 3/4)
+            // 左侧：时间 (3/4)
             Column(Modifier.weight(0.75f).fillMaxHeight(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-                GlassContainer(Modifier.fillMaxWidth(0.85f).fillMaxHeight(0.6f)) {
+                // HazeChild 玻璃容器
+                Box(Modifier.fillMaxWidth(0.85f).fillMaxHeight(0.6f).clip(RoundedCornerShape(32.dp))
+                    .hazeChild(state = hazeState, shape = RoundedCornerShape(32.dp)) {
+                        blurRadius = 20.dp
+                        tint = Color.White.copy(alpha = 0.12f)
+                    }
+                    .border(1.dp, Color.White.copy(0.2f), RoundedCornerShape(32.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(time)), style = TextStyle(fontSize = 160.sp, fontWeight = FontWeight.Thin, color = Color.White))
-                        Text(SimpleDateFormat("MM月dd日 EEEE", Locale.CHINESE).format(Date(time)), style = TextStyle(fontSize = 28.sp, fontWeight = FontWeight.Light, color = Color.White.copy(0.7f)))
-                        Spacer(Modifier.height(8.dp))
-                        Text(SimpleDateFormat("ss", Locale.getDefault()).format(Date(time)), style = TextStyle(fontSize = 48.sp, fontWeight = FontWeight.ExtraLight, color = Color(0xFFFFB800)))
+                        Text(SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(time)), style = TextStyle(fontSize = 150.sp, fontWeight = FontWeight.Thin, color = Color.White))
+                        Text(SimpleDateFormat("yyyy年MM月dd日 EEEE", Locale.CHINESE).format(Date(time)), style = TextStyle(fontSize = 26.sp, fontWeight = FontWeight.Light, color = Color.White.copy(0.8f)))
+                        Text(SimpleDateFormat("ss", Locale.getDefault()).format(Date(time)), style = TextStyle(fontSize = 45.sp, fontWeight = FontWeight.ExtraLight, color = Color(0xFFFFB800)))
                     }
                 }
             }
 
-            // 右侧：待办 (占 1/4)
+            // 右侧：待办列表 (1/4)
             Column(Modifier.weight(0.25f).fillMaxHeight().padding(start = 24.dp)) {
-                GlassContainer(Modifier.fillMaxSize()) {
+                Box(Modifier.fillMaxSize().clip(RoundedCornerShape(32.dp))
+                    .hazeChild(state = hazeState, shape = RoundedCornerShape(32.dp)) {
+                        blurRadius = 20.dp
+                        tint = Color.White.copy(alpha = 0.1f)
+                    }
+                    .border(1.dp, Color.White.copy(0.15f), RoundedCornerShape(32.dp))
+                ) {
                     Column(Modifier.padding(20.dp)) {
+                        // 标题靠左对齐
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                             Text("待办事项", style = TextStyle(fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White))
-                            IconButton(onClick = { launcher.launch(arrayOf("image/*")) }) { Icon(Icons.Default.Image, null, tint = Color.White.copy(0.4f), modifier = Modifier.size(22.dp)) }
+                            IconButton(onClick = { launcher.launch(arrayOf("image/*")) }) { Icon(Icons.Default.Image, null, tint = Color.White.copy(0.4f)) }
                         }
                         Spacer(Modifier.height(20.dp))
                         
                         Box(Modifier.weight(1f)) {
                             if (todos.isEmpty()) {
-                                // 找回“悠闲的一天”
                                 Text("悠闲的一天，去喝杯茶吧~", style = TextStyle(color = Color.White.copy(0.3f), fontSize = 16.sp), modifier = Modifier.align(Alignment.Center))
                             } else {
                                 LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                     items(todos, key = { it.id }) { item ->
-                                        TodoSwipeItem(item, onComplete = { viewModel.complete(item.id) }, onStar = { viewModel.toggleStar(item.id, item.isStarred) })
+                                        OriginalSwipeItem(item, onComplete = { viewModel.complete(item.id) }, onStar = { viewModel.toggleStar(item.id, item.isStarred) })
                                     }
                                 }
                             }
                         }
-                        
+
                         FloatingActionButton(onClick = { viewModel.showSheet = true }, containerColor = Color(0xFFFFB800), shape = CircleShape, modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 16.dp)) {
                             Icon(Icons.Default.Add, null, tint = Color.White)
                         }
@@ -198,8 +220,9 @@ fun ClockTodoApp() {
             }
         }
 
+        // --- 弹窗逻辑 (彻底修复：不关 Sheet) ---
         if (viewModel.showSheet) {
-            AddTodoSheet(
+            OriginalAddTodoSheet(
                 text = viewModel.inputText,
                 onTextChange = { viewModel.inputText = it },
                 onDismiss = { if (viewModel.inputText.isNotBlank()) viewModel.showDiscardDialog = true else viewModel.showSheet = false },
@@ -210,9 +233,8 @@ fun ClockTodoApp() {
         if (viewModel.showDiscardDialog) {
             AlertDialog(
                 onDismissRequest = { viewModel.showDiscardDialog = false },
-                title = { Text("继续编辑？", color = Color.White) },
-                text = { Text("您输入的内容尚未保存。", color = Color.White.copy(0.8f)) },
-                containerColor = Color(0xFF2C2C2E),
+                title = { Text("继续编辑吗？") },
+                text = { Text("您输入的内容尚未保存。") },
                 confirmButton = { TextButton(onClick = { viewModel.showDiscardDialog = false }) { Text("继续编辑", color = Color(0xFFFFB800)) } },
                 dismissButton = { TextButton(onClick = { viewModel.inputText = ""; viewModel.showDiscardDialog = false; viewModel.showSheet = false }) { Text("放弃内容", color = Color.White.copy(0.5f)) } }
             )
@@ -220,45 +242,25 @@ fun ClockTodoApp() {
     }
 }
 
-// --- 强制模糊容器 (Android 11 兼容) ---
+// --- 滑动单项 (还原所有视觉图形) ---
 @Composable
-fun GlassContainer(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
-    Box(modifier = modifier) {
-        // 底层：强制模拟模糊层
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .clip(RoundedCornerShape(32.dp))
-                .background(Color.White.copy(alpha = 0.12f))
-                .blur(15.dp) // 降低半径，更清晰
-                .border(1.dp, Color.White.copy(0.15f), RoundedCornerShape(32.dp))
-        )
-        // 上层：内容显示（不被模糊影响）
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            content()
-        }
-    }
-}
-
-// --- 待办单项 (还原图形视觉) ---
-@Composable
-fun TodoSwipeItem(todo: TodoItem, onComplete: () -> Unit, onStar: () -> Unit) {
+fun OriginalSwipeItem(todo: TodoItem, onComplete: () -> Unit, onStar: () -> Unit) {
     val offsetX = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
 
     Box(Modifier.fillMaxWidth().height(64.dp)) {
-        // 背景层图标
+        // 背景层 (绿色圆圈对勾 / 黄色星星)
         Box(Modifier.fillMaxSize()) {
-            if (offsetX.value > 60f) { // 右划显示绿色对勾圆圈
-                Box(Modifier.align(Alignment.CenterStart).padding(start = 16.dp).size(36.dp).background(Color(0xFF4CAF50), CircleShape), contentAlignment = Alignment.Center) {
+            if (offsetX.value > 60f) {
+                Box(Modifier.align(Alignment.CenterStart).padding(start = 12.dp).size(36.dp).background(Color(0xFF4CAF50), CircleShape), contentAlignment = Alignment.Center) {
                     Icon(Icons.Default.Check, null, tint = Color.White, modifier = Modifier.size(22.dp))
                 }
-            } else if (offsetX.value < -60f) { // 左划显示黄色星标
-                Icon(Icons.Default.Star, null, tint = Color(0xFFFFB800), modifier = Modifier.align(Alignment.CenterEnd).padding(end = 16.dp).size(30.dp))
+            } else if (offsetX.value < -60f) {
+                Icon(Icons.Default.Star, null, tint = Color(0xFFFFB800), modifier = Modifier.align(Alignment.CenterEnd).padding(end = 12.dp).size(30.dp))
             }
         }
 
-        // 上层卡片 (修正颜色显示)
+        // 上层卡片 (优化后的 0 延迟手感)
         Surface(
             modifier = Modifier
                 .offset { IntOffset(offsetX.value.roundToInt(), 0) }
@@ -271,31 +273,30 @@ fun TodoSwipeItem(todo: TodoItem, onComplete: () -> Unit, onStar: () -> Unit) {
                         },
                         onDragEnd = {
                             scope.launch {
-                                if (offsetX.value > 160f) onComplete()
-                                else if (offsetX.value < -160f) onStar()
+                                if (offsetX.value > 150f) onComplete()
+                                else if (offsetX.value < -150f) onStar()
                                 offsetX.animateTo(0f, spring(dampingRatio = Spring.DampingRatioMediumBouncy))
                             }
                         }
                     )
                 },
-            color = if (todo.isStarred) Color(0xFFFFB800).copy(0.25f) else Color.White.copy(0.12f),
-            shape = RoundedCornerShape(16.dp),
-            border = if (todo.isStarred) androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFFB800).copy(0.5f)) else null
+            color = if (todo.isStarred) Color(0xFFFFB800).copy(0.2f) else Color.White.copy(0.12f),
+            shape = RoundedCornerShape(14.dp),
+            border = if (todo.isStarred) BorderStroke(1.dp, Color(0xFFFFB800).copy(0.5f)) else null
         ) {
             Row(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (todo.isStarred) Icon(Icons.Default.Star, null, tint = Color(0xFFFFB800), modifier = Modifier.size(20.dp))
+                if (todo.isStarred) Icon(Icons.Default.Star, null, tint = Color(0xFFFFB800), modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(10.dp))
-                // 确保文字为纯白色
-                Text(text = todo.content, style = TextStyle(color = Color.White, fontSize = 17.sp), maxLines = 1)
+                Text(todo.content, color = Color.White, fontSize = 17.sp, maxLines = 1)
             }
         }
     }
 }
 
-// --- 底部弹窗 (修复编译报错) ---
+// --- 底部 Sheet (修复报错，适配键盘) ---
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AddTodoSheet(text: String, onTextChange: (String) -> Unit, onDismiss: () -> Unit, onSave: () -> Unit) {
+fun OriginalAddTodoSheet(text: String, onTextChange: (String) -> Unit, onDismiss: () -> Unit, onSave: () -> Unit) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     BackHandler { onDismiss() }
 
@@ -303,35 +304,34 @@ fun AddTodoSheet(text: String, onTextChange: (String) -> Unit, onDismiss: () -> 
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         dragHandle = { BottomSheetDefaults.DragHandle() },
-        containerColor = Color(0xFF1C1C1E)
+        containerColor = Color(0xFF1C1C1E),
+        windowInsets = WindowInsets.ime
     ) {
-        Column(Modifier.padding(24.dp).navigationBarsPadding().imePadding()) {
-            Text("新事项", style = TextStyle(fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White))
-            Spacer(Modifier.height(16.dp))
+        Column(Modifier.padding(24.dp).padding(bottom = 32.dp)) {
+            Text("新建待办事项", style = TextStyle(fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White))
+            Spacer(Modifier.height(20.dp))
             OutlinedTextField(
                 value = text,
                 onValueChange = onTextChange,
                 modifier = Modifier.fillMaxWidth(),
                 textStyle = TextStyle(color = Color.White),
-                // 修复编译报错：outlinedTextFieldColors 语法修正
+                // 修复：Material 3 最新语法
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = Color(0xFFFFB800),
                     unfocusedBorderColor = Color.White.copy(0.3f),
                     focusedTextColor = Color.White,
                     unfocusedTextColor = Color.White
                 ),
-                placeholder = { Text("在此输入待办...", color = Color.White.copy(0.4f)) }
+                placeholder = { Text("想做点什么？", color = Color.White.copy(0.4f)) }
             )
             Spacer(Modifier.height(24.dp))
-            Button(
-                onClick = onSave,
-                modifier = Modifier.fillMaxWidth().height(52.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFB800)),
-                enabled = text.isNotBlank()
-            ) {
-                Text("确认添加", fontWeight = FontWeight.Bold, color = Color.White)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = onDismiss) { Text("取消", color = Color.White.copy(0.6f)) }
+                Spacer(Modifier.width(12.dp))
+                Button(onClick = onSave, enabled = text.isNotBlank(), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFB800))) {
+                    Text("添加", fontWeight = FontWeight.Bold)
+                }
             }
-            Spacer(Modifier.height(16.dp))
         }
     }
 }
