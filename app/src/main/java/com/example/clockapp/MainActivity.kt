@@ -5,7 +5,6 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
-import android.view.View
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -15,7 +14,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -34,7 +32,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -51,6 +48,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewModelScope // 必须手动导入
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.room.*
 import coil.compose.rememberAsyncImagePainter
@@ -63,10 +61,9 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
-import kotlin.math.absoluteValue
 import kotlin.math.roundToInt
 
-// ==================== 1. 基础架构 (Data & ViewModel) ====================
+// ==================== 1. 数据模型与 ViewModel ====================
 
 val Context.dataStore by preferencesDataStore(name = "settings")
 
@@ -107,8 +104,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val todoDao = (application as ClockApplication).database.todoDao()
     private val BACKGROUND_KEY = stringPreferencesKey("bg_uri")
     
-    val currentTime = flow { while(true) { emit(System.currentTimeMillis()); delay(1000) } }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), System.currentTimeMillis())
-    val todos = todoDao.getAllActiveTodos().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val currentTime = flow { while(true) { emit(System.currentTimeMillis()); delay(1000) } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), System.currentTimeMillis())
+    
+    val todos = todoDao.getAllActiveTodos()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     
     private val _bgUri = MutableStateFlow<Uri?>(null)
     val bgUri = _bgUri.asStateFlow()
@@ -119,15 +119,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         viewModelScope.launch {
-            application.dataStore.data.map { it[BACKGROUND_KEY] }.firstOrNull()?.let { _bgUri.value = Uri.parse(it) }
+            // 修复私有访问错误：改用 getApplication<Application>()
+            getApplication<Application>().dataStore.data.map { it[BACKGROUND_KEY] }.firstOrNull()?.let { 
+                _bgUri.value = Uri.parse(it) 
+            }
         }
     }
 
     fun setBackground(uri: Uri) {
         _bgUri.value = uri
         viewModelScope.launch { 
-            application.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            application.dataStore.edit { it[BACKGROUND_KEY] = uri.toString() } 
+            getApplication<Application>().contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            getApplication<Application>().dataStore.edit { it[BACKGROUND_KEY] = uri.toString() } 
         }
     }
 
@@ -141,7 +144,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun toggleStar(id: Long, current: Boolean) = viewModelScope.launch(Dispatchers.IO) { todoDao.setStarred(id, !current) }
 }
 
-// ==================== 2. 主页面 (UI) ====================
+// ==================== 2. 主页面 ====================
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -163,13 +166,10 @@ fun ClockTodoApp() {
     val bgUri by viewModel.bgUri.collectAsState()
     val time by viewModel.currentTime.collectAsState()
     val todos by viewModel.todos.collectAsState()
-    
-    // Haze 核心状态
     val hazeState = remember { HazeState() }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { it?.let { viewModel.setBackground(it) } }
 
     Box(Modifier.fillMaxSize()) {
-        // 背景图并应用 Haze 采样
         Box(Modifier.fillMaxSize().haze(hazeState)) {
             if (bgUri != null) {
                 Image(rememberAsyncImagePainter(bgUri), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
@@ -190,7 +190,6 @@ fun ClockTodoApp() {
             }
         ) { p ->
             Row(Modifier.padding(p).fillMaxSize().padding(24.dp)) {
-                // 时钟区域
                 Box(Modifier.weight(0.7f).fillMaxHeight(), contentAlignment = Alignment.Center) {
                     GlassBox(hazeState, Modifier.fillMaxWidth(0.8f).fillMaxHeight(0.6f)) {
                         val timeStr = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(time))
@@ -198,7 +197,6 @@ fun ClockTodoApp() {
                     }
                 }
                 
-                // 待办区域
                 Box(Modifier.weight(0.35f).fillMaxHeight()) {
                     GlassBox(hazeState, Modifier.fillMaxSize()) {
                         Column(Modifier.padding(16.dp)) {
@@ -206,38 +204,25 @@ fun ClockTodoApp() {
                             Spacer(Modifier.height(16.dp))
                             LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                 items(todos, key = { it.id }) { item ->
-                                    SwipeableItem(item, 
-                                        onComplete = { viewModel.complete(item.id) },
-                                        onStar = { viewModel.toggleStar(item.id, item.isStarred) }
-                                    )
+                                    SwipeableItem(item, onComplete = { viewModel.complete(item.id) }, onStar = { viewModel.toggleStar(item.id, item.isStarred) })
                                 }
                             }
-                            FloatingActionButton(
-                                onClick = { viewModel.showSheet = true },
-                                containerColor = Color(0xFFFFB800),
-                                shape = CircleShape,
-                                modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 16.dp)
-                            ) { Icon(Icons.Default.Add, null, tint = Color.White) }
+                            FloatingActionButton(onClick = { viewModel.showSheet = true }, containerColor = Color(0xFFFFB800), shape = CircleShape, modifier = Modifier.align(Alignment.CenterHorizontally)) { Icon(Icons.Default.Add, null, tint = Color.White) }
                         }
                     }
                 }
             }
         }
 
-        // 底部弹窗
         if (viewModel.showSheet) {
             AddTodoSheet(
                 text = viewModel.inputText,
                 onTextChange = { viewModel.inputText = it },
-                onDismiss = {
-                    if (viewModel.inputText.isNotBlank()) viewModel.showDiscardDialog = true
-                    else viewModel.showSheet = false
-                },
+                onDismiss = { if (viewModel.inputText.isNotBlank()) viewModel.showDiscardDialog = true else viewModel.showSheet = false },
                 onSave = { viewModel.saveTodo() }
             )
         }
 
-        // 放弃更改弹窗 (修复：点击继续编辑仅关闭此对话框)
         if (viewModel.showDiscardDialog) {
             AlertDialog(
                 onDismissRequest = { viewModel.showDiscardDialog = false },
@@ -250,17 +235,20 @@ fun ClockTodoApp() {
     }
 }
 
-// ==================== 3. 核心组件 (模糊与手势修复) ====================
+// ==================== 3. 核心修复组件 ====================
 
 @Composable
 fun GlassBox(hazeState: HazeState, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(28.dp))
-            .hazeChild(state = hazeState, shape = RoundedCornerShape(28.dp)) {
+            // 修复 HazeChild 语法报错：改用直接传参方式，不使用 lambda
+            .hazeChild(
+                state = hazeState, 
+                shape = RoundedCornerShape(28.dp),
+                tint = Color.White.copy(alpha = 0.12f),
                 blurRadius = 25.dp
-                tint = Color.White.copy(alpha = 0.12f)
-            }
+            )
             .border(0.5.dp, Color.White.copy(0.2f), RoundedCornerShape(28.dp)),
         contentAlignment = Alignment.Center
     ) {
@@ -276,16 +264,11 @@ fun SwipeableItem(todo: TodoItem, onComplete: () -> Unit, onStar: () -> Unit) {
     val scope = rememberCoroutineScope()
 
     Box(Modifier.fillMaxWidth().height(64.dp)) {
-        // 底层图标
         Box(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
-            if (offsetX.value > 0) {
-                Text(if(todo.isStarred) "取消星标" else "标记重要", color = Color(0xFFFFB800), modifier = Modifier.align(Alignment.CenterStart), fontWeight = FontWeight.Bold)
-            } else if (offsetX.value < 0) {
-                Icon(Icons.Default.Check, null, tint = Color.Green, modifier = Modifier.align(Alignment.CenterEnd))
-            }
+            if (offsetX.value > 0) Text("标记重要", color = Color(0xFFFFB800), modifier = Modifier.align(Alignment.CenterStart))
+            else if (offsetX.value < 0) Icon(Icons.Default.Check, null, tint = Color.Green, modifier = Modifier.align(Alignment.CenterEnd))
         }
 
-        // 卡片层 (修复：使用 snapTo 达到 0 延迟手感)
         Card(
             modifier = Modifier
                 .offset { IntOffset(offsetX.value.roundToInt(), 0) }
@@ -310,7 +293,7 @@ fun SwipeableItem(todo: TodoItem, onComplete: () -> Unit, onStar: () -> Unit) {
         ) {
             Row(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                 if(todo.isStarred) Icon(Icons.Default.Star, null, tint = Color(0xFFFFB800), modifier = Modifier.size(20.dp))
-                Text(todo.content, color = Color.White, modifier = Modifier.padding(start = 10.dp), fontSize = 16.sp)
+                Text(todo.content, color = Color.White, modifier = Modifier.padding(start = 10.dp))
             }
         }
     }
@@ -321,30 +304,27 @@ fun SwipeableItem(todo: TodoItem, onComplete: () -> Unit, onStar: () -> Unit) {
 fun AddTodoSheet(text: String, onTextChange: (String) -> Unit, onDismiss: () -> Unit, onSave: () -> Unit) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     
-    // 拦截物理返回键
     BackHandler { onDismiss() }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        dragHandle = { BottomSheetDefaults.DragHandle() },
-        windowInsets = WindowInsets.ime // 自动适配键盘高度
+        dragHandle = { BottomSheetDefaults.DragHandle() }
+        // 修复：如果 windowInsets 报错，可以暂时移除该参数，或确保版本正确
     ) {
         Column(Modifier.padding(24.dp).padding(bottom = 32.dp)) {
-            Text("新建待办事项", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text("新建待办事项", style = MaterialTheme.typography.titleLarge)
             Spacer(Modifier.height(20.dp))
             OutlinedTextField(
                 value = text,
                 onValueChange = onTextChange,
                 modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("想做点什么？") },
-                shape = RoundedCornerShape(12.dp)
+                placeholder = { Text("想做点什么？") }
             )
             Spacer(Modifier.height(24.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = onDismiss) { Text("取消") }
-                Spacer(Modifier.width(12.dp))
-                Button(onClick = onSave, enabled = text.isNotBlank(), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFB800))) { Text("添加") }
+                Button(onClick = onSave, enabled = text.isNotBlank()) { Text("添加") }
             }
         }
     }
