@@ -440,42 +440,12 @@ fun ClockTodoApp() {
             text = viewModel.inputText,
             onTextChange = { viewModel.inputText = it },
             onDismiss = {
-                if (viewModel.inputText.isNotBlank()) {
-                    viewModel.showDiscardDialog = true
-                } else {
-                    viewModel.showSheet = false
-                }
+                viewModel.showSheet = false
             },
             onSave = { viewModel.saveTodo() }
         )
 
-        /* 放弃确认 */
-        if (viewModel.showDiscardDialog) {
-            AlertDialog(
-                onDismissRequest = {
-                    viewModel.showDiscardDialog = false
-                },
-                title = { Text("继续编辑吗？") },
-                text = { Text("您输入的内容尚未保存。") },
-                confirmButton = {
-                    TextButton(onClick = {
-                        viewModel.showDiscardDialog = false
-                        viewModel.showSheet = true
-                    }) {
-                        Text("继续编辑", color = Color(0xFFFFB800))
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = {
-                        viewModel.inputText = ""
-                        viewModel.showDiscardDialog = false
-                        viewModel.showSheet = false
-                    }) {
-                        Text("放弃内容", color = Color.White.copy(0.5f))
-                    }
-                }
-            )
-        }
+
     }
 }
 
