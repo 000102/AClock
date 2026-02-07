@@ -242,7 +242,7 @@ fun Modifier.blurredBackground(
         this.hazeChild(
             state = hazeState,
             style = dev.chrisbanes.haze.HazeStyle(
-                backgroundColor = backgroundColor,
+                tint = backgroundColor,
                 blurRadius = blurRadius.dp
             )
         )
