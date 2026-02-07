@@ -43,6 +43,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.os.Build
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.core.view.WindowCompat
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -224,6 +230,49 @@ class MainActivity : ComponentActivity() {
 
 /* ---------- UI ---------- */
 
+// 模糊背景Modifier - 兼容所有Android版本
+@Composable
+fun Modifier.blurredBackground(
+    hazeState: HazeState,
+    backgroundColor: Color = Color.White.copy(0.15f),
+    blurRadius: Float = 20f
+): Modifier {
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        // Android 12+ 使用Haze库的原生RenderEffect
+        this.hazeChild(
+            state = hazeState,
+            style = dev.chrisbanes.haze.HazeStyle(
+                backgroundColor = backgroundColor,
+                blurRadius = blurRadius.dp
+            )
+        )
+    } else {
+        // Android 11及以下使用多层半透明叠加模拟毛玻璃效果
+        this
+            .drawBehind {
+                // 绘制多层渐变模拟模糊
+                drawRect(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            backgroundColor.copy(alpha = 0.7f),
+                            backgroundColor.copy(alpha = 0.85f),
+                            backgroundColor.copy(alpha = 0.95f)
+                        ),
+                        center = center,
+                        radius = size.maxDimension * 0.8f
+                    )
+                )
+                // 叠加纯色层增强毛玻璃感
+                drawRect(backgroundColor.copy(alpha = 0.75f))
+            }
+            .graphicsLayer {
+                // 添加轻微的层次感
+                shadowElevation = 8f
+                alpha = 0.98f
+            }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ClockTodoApp() {
@@ -274,12 +323,10 @@ fun ClockTodoApp() {
                     modifier = Modifier
                         .size(44.dp)
                         .clip(CircleShape)
-                        .hazeChild(
-                            state = hazeState,
-                            style = dev.chrisbanes.haze.HazeStyle(
-                                backgroundColor = Color.White.copy(0.15f),
-                                blurRadius = 20.dp
-                            )
+                        .blurredBackground(
+                            hazeState = hazeState,
+                            backgroundColor = Color.White.copy(0.15f),
+                            blurRadius = 20f
                         )
                         .border(
                             1.dp,
@@ -331,12 +378,10 @@ fun ClockTodoApp() {
                     .padding(bottom = 32.dp)
                     .heightIn(min = 240.dp)
                     .clip(RoundedCornerShape(20.dp))
-                    .hazeChild(
-                        state = hazeState,
-                        style = dev.chrisbanes.haze.HazeStyle(
-                            backgroundColor = Color.White.copy(0.15f),
-                            blurRadius = 20.dp
-                        )
+                    .blurredBackground(
+                        hazeState = hazeState,
+                        backgroundColor = Color.White.copy(0.15f),
+                        blurRadius = 20f
                     )
                     .border(
                         1.dp,
