@@ -248,11 +248,10 @@ class MainActivity : ComponentActivity() {
 
 /* ---------- UI ---------- */
 
-enum class TodoBoxState {
+enum class BoxState {
     HIDDEN,
     NORMAL,
-    EXPANDED,
-    ANIMATING
+    EXPANDED
 }
 
 @Composable
@@ -307,142 +306,209 @@ fun ClockTodoApp() {
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     val isPortrait = !isLandscape
 
-    var boxState by remember { mutableStateOf(TodoBoxState.NORMAL) }
+    // 核心状态
+    var boxState by remember { mutableStateOf(BoxState.HIDDEN) }
+    var targetState by remember { mutableStateOf<BoxState?>(null) }
+    var isDragging by remember { mutableStateOf(false) }
     
-    LaunchedEffect(isLandscape, isBoxManuallyHidden) {
-        if (boxState != TodoBoxState.ANIMATING && boxState != TodoBoxState.EXPANDED) {
-            boxState = when {
-                isPortrait -> TodoBoxState.HIDDEN
-                isBoxManuallyHidden -> TodoBoxState.HIDDEN
-                else -> TodoBoxState.NORMAL
+    // 动画值
+    val offsetX = remember { Animatable(0f) }
+    val expandProgress = remember { Animatable(0f) }
+    
+    val scope = rememberCoroutineScope()
+    val density = LocalDensity.current
+    val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }
+
+    // 初始化
+    LaunchedEffect(Unit) {
+        if (isPortrait) {
+            boxState = BoxState.HIDDEN
+            offsetX.snapTo(screenWidthPx)
+            expandProgress.snapTo(0f)
+        } else {
+            boxState = if (isBoxManuallyHidden) BoxState.HIDDEN else BoxState.NORMAL
+            offsetX.snapTo(if (isBoxManuallyHidden) screenWidthPx else 0f)
+            expandProgress.snapTo(0f)
+        }
+    }
+
+    // 屏幕方向变化
+    LaunchedEffect(isLandscape) {
+        if (isDragging || targetState != null) return@LaunchedEffect
+        
+        if (isPortrait) {
+            // 竖屏：隐藏
+            if (boxState != BoxState.HIDDEN) {
+                targetState = BoxState.HIDDEN
+                scope.launch { 
+                    offsetX.animateTo(screenWidthPx, tween(400))
+                    expandProgress.animateTo(0f, tween(400))
+                    boxState = BoxState.HIDDEN
+                    targetState = null
+                }
+            }
+        } else {
+            // 横屏：根据设置恢复
+            val shouldShow = !isBoxManuallyHidden && boxState == BoxState.HIDDEN
+            if (shouldShow) {
+                targetState = BoxState.NORMAL
+                scope.launch {
+                    offsetX.animateTo(0f, tween(400))
+                    boxState = BoxState.NORMAL
+                    targetState = null
+                }
             }
         }
     }
+
+    // 计算属性
+    val timeAlpha = 1f - expandProgress.value
+    val timeScale = 1f - expandProgress.value * 0.3f
+    val boxWidthFraction = 0.25f + 0.75f * expandProgress.value
+    val isEffectivelyHidden = boxState == BoxState.HIDDEN && offsetX.value > screenWidthPx * 0.9f
 
     val launcher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { it?.let(viewModel::setBackground) }
 
-    val boxOffsetX = remember { Animatable(0f) }
-    val scope = rememberCoroutineScope()
-    val expandProgress = remember { Animatable(0f) }
-    val visualExpandProgress = remember { Animatable(0f) }
-
-    // 修复1：时间完全透明 - 直接使用 visualExpandProgress
-    val timeScale = 1f - visualExpandProgress.value * 0.3f
-    val timeAlpha = 1f - visualExpandProgress.value
-
-    val density = LocalDensity.current
-    val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }
-
-    LaunchedEffect(boxState) {
-        when (boxState) {
-            TodoBoxState.HIDDEN -> {
-                if (boxOffsetX.value != screenWidthPx) {
-                    boxOffsetX.animateTo(screenWidthPx, tween(300))
+    // 手势处理
+    val gestureModifier = Modifier.pointerInput(Unit) {
+        detectHorizontalDragGestures(
+            onDragStart = { startPoint ->
+                // 只在右边缘或已显示时响应
+                val edgeThreshold = 50.dp.toPx()
+                val isEdge = startPoint.x >= screenWidthPx - edgeThreshold
+                val isVisible = boxState != BoxState.HIDDEN || offsetX.value < screenWidthPx
+                
+                if (isEdge || isVisible) {
+                    isDragging = true
+                    if (boxState == BoxState.HIDDEN && offsetX.value >= screenWidthPx) {
+                        scope.launch { offsetX.snapTo(screenWidthPx) }
+                    }
                 }
-                visualExpandProgress.animateTo(0f, tween(300))
-                expandProgress.snapTo(0f)
-            }
-            TodoBoxState.NORMAL -> {
-                if (boxOffsetX.value != 0f) {
-                    boxOffsetX.animateTo(0f, tween(400))
+            },
+            onHorizontalDrag = { change, dragAmount ->
+                change.consume()
+                if (!isDragging) return@detectHorizontalDragGestures
+                
+                scope.launch {
+                    when (boxState) {
+                        BoxState.HIDDEN, BoxState.NORMAL -> {
+                            // 从边缘滑入
+                            val newOffset = (offsetX.value + dragAmount).coerceIn(0f, screenWidthPx)
+                            offsetX.snapTo(newOffset)
+                            
+                            if (isPortrait) {
+                                // 竖屏：直接映射到展开进度
+                                val progress = 1f - (offsetX.value / screenWidthPx)
+                                expandProgress.snapTo(progress.coerceIn(0f, 1f))
+                            }
+                        }
+                        BoxState.EXPANDED -> {
+                            // 已展开：滑动偏移
+                            val newOffset = (offsetX.value + dragAmount).coerceIn(0f, screenWidthPx)
+                            offsetX.snapTo(newOffset)
+                        }
+                    }
                 }
-                visualExpandProgress.animateTo(0f, tween(400))
-                expandProgress.animateTo(0f, tween(400))
-            }
-            TodoBoxState.EXPANDED -> {
-                if (boxOffsetX.value != 0f) {
-                    boxOffsetX.animateTo(0f, tween(300))
+            },
+            onDragEnd = {
+                if (!isDragging) return@detectHorizontalDragGestures
+                isDragging = false
+                
+                scope.launch {
+                    val threshold = screenWidthPx * 0.07f
+                    
+                    when (boxState) {
+                        BoxState.HIDDEN -> {
+                            // 从隐藏状态滑入
+                            if (offsetX.value < screenWidthPx - threshold) {
+                                // 显示
+                                if (isPortrait) {
+                                    // 竖屏直接全屏
+                                    targetState = BoxState.EXPANDED
+                                    launch { offsetX.animateTo(0f, tween(400)) }
+                                    launch { expandProgress.animateTo(1f, tween(500)) }
+                                    boxState = BoxState.EXPANDED
+                                } else {
+                                    // 横屏正常
+                                    targetState = BoxState.NORMAL
+                                    launch { offsetX.animateTo(0f, tween(400)) }
+                                    boxState = BoxState.NORMAL
+                                    viewModel.setBoxManuallyHidden(false)
+                                }
+                            } else {
+                                // 保持隐藏
+                                offsetX.animateTo(screenWidthPx, tween(400))
+                            }
+                            targetState = null
+                        }
+                        BoxState.NORMAL -> {
+                            // 从正常状态
+                            if (offsetX.value > threshold) {
+                                // 隐藏
+                                targetState = BoxState.HIDDEN
+                                launch { offsetX.animateTo(screenWidthPx, tween(400)) }
+                                if (isLandscape) viewModel.setBoxManuallyHidden(true)
+                                boxState = BoxState.HIDDEN
+                            } else {
+                                // 回弹
+                                offsetX.animateTo(0f, tween(300))
+                            }
+                            targetState = null
+                        }
+                        BoxState.EXPANDED -> {
+                            // 从展开状态
+                            if (offsetX.value > threshold) {
+                                // 收回
+                                targetState = if (isPortrait) BoxState.HIDDEN else BoxState.NORMAL
+                                
+                                if (isPortrait) {
+                                    // 竖屏：直接滑出隐藏
+                                    launch { offsetX.animateTo(screenWidthPx, tween(400)) }
+                                    launch { expandProgress.animateTo(0f, tween(400)) }
+                                    boxState = BoxState.HIDDEN
+                                } else {
+                                    // 横屏：滑出后重置再滑入
+                                    launch { offsetX.animateTo(screenWidthPx, tween(350)) }
+                                    launch { expandProgress.animateTo(0f, tween(350)) }
+                                    
+                                    delay(350)
+                                    offsetX.snapTo(screenWidthPx)
+                                    
+                                    launch { offsetX.animateTo(0f, tween(400)) }
+                                    boxState = BoxState.NORMAL
+                                }
+                            } else {
+                                // 回弹
+                                offsetX.animateTo(0f, tween(300))
+                            }
+                            targetState = null
+                        }
+                    }
                 }
-                visualExpandProgress.animateTo(1f, tween(500))
-                expandProgress.animateTo(1f, tween(500))
             }
-            else -> {}
-        }
+        )
     }
-
-    val isEffectivelyExpanded = visualExpandProgress.value > 0.1f
-    val isEffectivelyHidden = boxState == TodoBoxState.HIDDEN && boxOffsetX.value > screenWidthPx * 0.95f
 
     Box(
         Modifier
             .fillMaxSize()
+            .then(gestureModifier)
             .pointerInput(boxState) {
                 detectTapGestures(
                     onDoubleTap = { offset ->
-                        val boxVisible = boxState != TodoBoxState.HIDDEN && boxState != TodoBoxState.ANIMATING
                         val inBoxArea = when (boxState) {
-                            TodoBoxState.EXPANDED -> true
-                            TodoBoxState.NORMAL -> {
-                                val boxStartX = screenWidthPx * 0.75f
-                                offset.x >= boxStartX
-                            }
+                            BoxState.EXPANDED -> true
+                            BoxState.NORMAL -> offset.x >= screenWidthPx * 0.75f
                             else -> false
                         }
                         
-                        if (!boxVisible || !inBoxArea) {
+                        if (!inBoxArea) {
                             launcher.launch(arrayOf("image/*"))
                         }
                     }
                 )
-            }
-            .pointerInput(boxState, screenWidthPx, isPortrait) {
-                // 修复4：竖屏时直接展开全屏
-                if (boxState == TodoBoxState.HIDDEN || boxState == TodoBoxState.NORMAL) {
-                    detectHorizontalDragGestures(
-                        onDragStart = { offset ->
-                            val edgeThreshold = with(density) { 50.dp.toPx() }
-                            if (offset.x >= screenWidthPx - edgeThreshold) {
-                                scope.launch {
-                                    if (boxOffsetX.value == 0f) {
-                                        boxOffsetX.snapTo(screenWidthPx)
-                                    }
-                                }
-                            }
-                        },
-                        onHorizontalDrag = { change, dragAmount ->
-                            if (boxOffsetX.value > 0 || boxOffsetX.value == screenWidthPx) {
-                                change.consume()
-                                scope.launch {
-                                    val newValue = (boxOffsetX.value + dragAmount).coerceIn(0f, screenWidthPx)
-                                    boxOffsetX.snapTo(newValue)
-                                    
-                                    // 根据滑动距离计算视觉进度（用于时间区域动画）
-                                    if (isPortrait && boxState == TodoBoxState.HIDDEN) {
-                                        // 竖屏：直接计算全屏进度
-                                        val slideProgress = 1f - (boxOffsetX.value / screenWidthPx).coerceIn(0f, 1f)
-                                        visualExpandProgress.snapTo(slideProgress)
-                                    }
-                                }
-                            }
-                        },
-                        onDragEnd = {
-                            scope.launch {
-                                // 修复2：阈值改为 7% (0.93f)
-                                if (boxOffsetX.value < screenWidthPx * 0.93f) {
-                                    if (isPortrait && boxState == TodoBoxState.HIDDEN) {
-                                        // 竖屏直接展开全屏
-                                        boxState = TodoBoxState.EXPANDED
-                                        boxOffsetX.animateTo(0f, tween(400))
-                                        visualExpandProgress.animateTo(1f, tween(500))
-                                        expandProgress.animateTo(1f, tween(500))
-                                    } else {
-                                        boxOffsetX.animateTo(0f, tween(400))
-                                        boxState = TodoBoxState.NORMAL
-                                        viewModel.setBoxManuallyHidden(false)
-                                    }
-                                } else {
-                                    boxOffsetX.animateTo(screenWidthPx, tween(400))
-                                    if (isLandscape) {
-                                        boxState = TodoBoxState.HIDDEN
-                                        viewModel.setBoxManuallyHidden(true)
-                                    }
-                                }
-                            }
-                        }
-                    )
-                }
             }
     ) {
 
@@ -536,63 +602,159 @@ fun ClockTodoApp() {
             }
 
             /* 待办区 */
-            TodoBoxContent(
-                boxState = boxState,
-                expandProgress = expandProgress,
-                visualExpandProgress = visualExpandProgress,
-                boxOffsetX = boxOffsetX.value,
-                todos = todos,
-                hazeState = hazeState,
-                viewModel = viewModel,
-                onStateChange = { newState ->
-                    scope.launch {
-                        when (newState) {
-                            TodoBoxState.EXPANDED -> {
-                                boxState = TodoBoxState.EXPANDED
-                                expandProgress.animateTo(1f, tween(500))
-                                visualExpandProgress.animateTo(1f, tween(500))
-                            }
-                            TodoBoxState.NORMAL -> {
-                                if (boxState == TodoBoxState.EXPANDED) {
-                                    // 修复3：优化动画，避免抽搐
-                                    boxState = TodoBoxState.ANIMATING
-                                    
-                                    // 同时执行滑出和收缩动画
-                                    launch { boxOffsetX.animateTo(screenWidthPx, tween(350)) }
-                                    launch { visualExpandProgress.animateTo(0f, tween(350)) }
-                                    launch { expandProgress.animateTo(0f, tween(350)) }
-                                    
-                                    // 等待滑出完成后瞬间重置并滑入
-                                    delay(350)
-                                    boxState = TodoBoxState.NORMAL
-                                    
-                                    // 从右侧滑入
-                                    boxOffsetX.snapTo(screenWidthPx)
-                                    boxOffsetX.animateTo(0f, tween(400))
+            if (offsetX.value < screenWidthPx * 0.99f) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .offset { IntOffset(offsetX.value.roundToInt(), 0) }
+                ) {
+                    Box(
+                        Modifier
+                            .fillMaxHeight()
+                            .fillMaxWidth(boxWidthFraction)
+                            .align(Alignment.CenterEnd)
+                            .clip(RoundedCornerShape(32.dp * (1f - expandProgress.value)))
+                            .hazeChild(
+                                state = hazeState,
+                                shape = RoundedCornerShape(32.dp * (1f - expandProgress.value)),
+                                tint = Color.White.copy(0.1f),
+                                blurRadius = 25.dp
+                            )
+                            .then(
+                                if (expandProgress.value < 1f) {
+                                    Modifier.border(
+                                        1.dp,
+                                        Color.White.copy(0.15f),
+                                        RoundedCornerShape(32.dp * (1f - expandProgress.value))
+                                    )
+                                } else Modifier
+                            )
+                    ) {
+                        Column(
+                            Modifier
+                                .padding(24.dp)
+                                .fillMaxSize()
+                                .pointerInput(boxState) {
+                                    if (boxState == BoxState.EXPANDED) {
+                                        detectTapGestures(
+                                            onDoubleTap = {
+                                                // 双击收起
+                                                scope.launch {
+                                                    targetState = if (isPortrait) BoxState.HIDDEN else BoxState.NORMAL
+                                                    
+                                                    if (isPortrait) {
+                                                        launch { offsetX.animateTo(screenWidthPx, tween(400)) }
+                                                        launch { expandProgress.animateTo(0f, tween(400)) }
+                                                        boxState = BoxState.HIDDEN
+                                                    } else {
+                                                        launch { offsetX.animateTo(screenWidthPx, tween(350)) }
+                                                        launch { expandProgress.animateTo(0f, tween(350)) }
+                                                        delay(350)
+                                                        offsetX.snapTo(screenWidthPx)
+                                                        launch { offsetX.animateTo(0f, tween(400)) }
+                                                        boxState = BoxState.NORMAL
+                                                    }
+                                                    targetState = null
+                                                }
+                                            }
+                                        )
+                                    }
+                                }
+                        ) {
+                            Text(
+                                "待办事项",
+                                style = TextStyle(
+                                    fontSize = fontSizes.todoTitle,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                            )
+                            Spacer(Modifier.height(20.dp))
+
+                            Box(Modifier.weight(1f).fillMaxWidth()) {
+                                if (todos.isEmpty()) {
+                                    Column(
+                                        modifier = Modifier.fillMaxSize(),
+                                        verticalArrangement = Arrangement.Center,
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Text(
+                                            "悠闲的一天，去喝杯茶吧~",
+                                            style = TextStyle(
+                                                color = Color.White.copy(0.25f),
+                                                fontSize = fontSizes.emptyText
+                                            )
+                                        )
+                                    }
                                 } else {
-                                    boxState = TodoBoxState.NORMAL
-                                    visualExpandProgress.animateTo(0f, tween(400))
+                                    LazyColumn(
+                                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        items(todos, key = { it.id }) { item ->
+                                            OriginalSwipeItem(
+                                                todo = item,
+                                                onComplete = {
+                                                    viewModel.complete(item.id)
+                                                },
+                                                onStar = {
+                                                    viewModel.toggleStar(
+                                                        item.id,
+                                                        item.isStarred
+                                                    )
+                                                },
+                                                fontSizes = fontSizes
+                                            )
+                                        }
+                                    }
                                 }
                             }
-                            TodoBoxState.HIDDEN -> {
-                                if (isLandscape) {
-                                    viewModel.setBoxManuallyHidden(true)
+
+                            Box(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 16.dp)
+                            ) {
+                                if (expandProgress.value > 0.5f) {
+                                    Button(
+                                        onClick = { viewModel.showSheet = true },
+                                        modifier = Modifier
+                                            .fillMaxWidth(0.7f)
+                                            .align(Alignment.Center)
+                                            .height(48.dp),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = Color(0xFFFFB800)
+                                        ),
+                                        shape = RoundedCornerShape(24.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Add,
+                                            null,
+                                            tint = Color.White,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(
+                                            "添加", 
+                                            fontWeight = FontWeight.Bold, 
+                                            color = Color.White,
+                                            fontSize = fontSizes.buttonText
+                                        )
+                                    }
+                                } else {
+                                    FloatingActionButton(
+                                        onClick = { viewModel.showSheet = true },
+                                        containerColor = Color(0xFFFFB800),
+                                        shape = CircleShape,
+                                        modifier = Modifier.align(Alignment.Center)
+                                    ) {
+                                        Icon(Icons.Default.Add, null, tint = Color.White)
+                                    }
                                 }
-                                boxState = TodoBoxState.ANIMATING
-                                launch { visualExpandProgress.animateTo(0f, tween(300)) }
-                                launch { expandProgress.animateTo(0f, tween(300)) }
-                                boxOffsetX.animateTo(screenWidthPx, tween(400))
-                                boxState = TodoBoxState.HIDDEN
                             }
-                            else -> {}
                         }
                     }
-                },
-                isLandscape = isLandscape,
-                screenWidthPx = screenWidthPx,
-                fontSizes = fontSizes,
-                isPortrait = isPortrait
-            )
+                }
+            }
         }
 
         /* Snackbar */
@@ -626,284 +788,6 @@ fun ClockTodoApp() {
             },
             onSave = { viewModel.saveTodo() }
         )
-    }
-}
-
-@Composable
-fun TodoBoxContent(
-    boxState: TodoBoxState,
-    expandProgress: Animatable<Float, *>,
-    visualExpandProgress: Animatable<Float, *>,
-    boxOffsetX: Float,
-    todos: List<TodoItem>,
-    hazeState: HazeState,
-    viewModel: MainViewModel,
-    onStateChange: (TodoBoxState) -> Unit,
-    isLandscape: Boolean,
-    screenWidthPx: Float,
-    fontSizes: ResponsiveFontSizes,
-    isPortrait: Boolean
-) {
-    if (boxOffsetX >= screenWidthPx * 0.99f && boxState != TodoBoxState.ANIMATING) {
-        return
-    }
-
-    val scope = rememberCoroutineScope()
-    val dragOffsetX = remember { Animatable(0f) }
-    var dragType by remember { mutableStateOf<String?>(null) }
-    
-    val actualOffsetX = when (boxState) {
-        TodoBoxState.HIDDEN -> boxOffsetX
-        TodoBoxState.ANIMATING -> boxOffsetX
-        else -> dragOffsetX.value + boxOffsetX
-    }
-
-    val boxWidthFraction = 0.25f + 0.75f * visualExpandProgress.value
-
-    Box(
-        Modifier
-            .fillMaxSize()
-            .offset { IntOffset(actualOffsetX.roundToInt(), 0) }
-    ) {
-        Box(
-            Modifier
-                .fillMaxHeight()
-                .fillMaxWidth(boxWidthFraction)
-                .align(Alignment.CenterEnd)
-                .clip(RoundedCornerShape(32.dp * (1f - visualExpandProgress.value)))
-                .hazeChild(
-                    state = hazeState,
-                    shape = RoundedCornerShape(32.dp * (1f - visualExpandProgress.value)),
-                    tint = Color.White.copy(0.1f),
-                    blurRadius = 25.dp
-                )
-                .then(
-                    if (visualExpandProgress.value < 1f) {
-                        Modifier.border(
-                            1.dp,
-                            Color.White.copy(0.15f),
-                            RoundedCornerShape(32.dp * (1f - visualExpandProgress.value))
-                        )
-                    } else Modifier
-                )
-        ) {
-            Column(
-                Modifier
-                    .padding(24.dp)
-                    .fillMaxSize()
-                    .pointerInput(boxState, isPortrait) {
-                        if (boxState == TodoBoxState.NORMAL || boxState == TodoBoxState.EXPANDED) {
-                            detectHorizontalDragGestures(
-                                onDragStart = {
-                                    dragType = null
-                                },
-                                onHorizontalDrag = { change, dragAmount ->
-                                    change.consume()
-                                    
-                                    scope.launch {
-                                        if (dragType == null && abs(dragAmount) > 5f) {
-                                            dragType = if (dragAmount < 0) "expand" else "hide"
-                                        }
-                                        
-                                        when (boxState) {
-                                            TodoBoxState.NORMAL -> {
-                                                when (dragType) {
-                                                    "expand" -> {
-                                                        // 竖屏直接展开全屏，不经过中间状态
-                                                        if (isPortrait) {
-                                                            val delta = -dragAmount / (screenWidthPx * 0.75f)
-                                                            val newProgress = (visualExpandProgress.value + delta).coerceIn(0f, 1f)
-                                                            visualExpandProgress.snapTo(newProgress)
-                                                            expandProgress.snapTo(newProgress)
-                                                        } else {
-                                                            val delta = -dragAmount / (screenWidthPx * 0.75f)
-                                                            val newProgress = (expandProgress.value + delta).coerceIn(0f, 1f)
-                                                            expandProgress.snapTo(newProgress)
-                                                            visualExpandProgress.snapTo(newProgress)
-                                                        }
-                                                    }
-                                                    "hide" -> {
-                                                        if (isLandscape) {
-                                                            val newOffset = (dragOffsetX.value + dragAmount).coerceIn(0f, screenWidthPx)
-                                                            dragOffsetX.snapTo(newOffset)
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                            TodoBoxState.EXPANDED -> {
-                                                if (dragAmount > 0) {
-                                                    val newOffset = (dragOffsetX.value + dragAmount).coerceIn(0f, screenWidthPx)
-                                                    dragOffsetX.snapTo(newOffset)
-                                                    val slideProgress = 1f - (dragOffsetX.value / screenWidthPx).coerceIn(0f, 1f)
-                                                    visualExpandProgress.snapTo(slideProgress)
-                                                }
-                                            }
-                                            else -> {}
-                                        }
-                                    }
-                                },
-                                onDragEnd = {
-                                    scope.launch {
-                                        when (boxState) {
-                                            TodoBoxState.NORMAL -> {
-                                                when (dragType) {
-                                                    "expand" -> {
-                                                        // 竖屏直接展开全屏
-                                                        if (isPortrait) {
-                                                            if (visualExpandProgress.value > 0.15f) {
-                                                                visualExpandProgress.animateTo(1f, tween(300))
-                                                                expandProgress.animateTo(1f, tween(300))
-                                                                onStateChange(TodoBoxState.EXPANDED)
-                                                            } else {
-                                                                visualExpandProgress.animateTo(0f, tween(300))
-                                                                expandProgress.animateTo(0f, tween(300))
-                                                            }
-                                                        } else {
-                                                            if (expandProgress.value > 0.2f) {
-                                                                expandProgress.animateTo(1f, tween(300))
-                                                                visualExpandProgress.animateTo(1f, tween(300))
-                                                                onStateChange(TodoBoxState.EXPANDED)
-                                                            } else {
-                                                                expandProgress.animateTo(0f, tween(300))
-                                                                visualExpandProgress.animateTo(0f, tween(300))
-                                                            }
-                                                        }
-                                                    }
-                                                    "hide" -> {
-                                                        // 修复2：阈值改为 7%
-                                                        if (dragOffsetX.value > screenWidthPx * 0.07f && isLandscape) {
-                                                            dragOffsetX.animateTo(screenWidthPx, tween(300))
-                                                            onStateChange(TodoBoxState.HIDDEN)
-                                                        } else {
-                                                            dragOffsetX.animateTo(0f, tween(300))
-                                                        }
-                                                    }
-                                                    else -> {
-                                                        expandProgress.animateTo(0f, tween(300))
-                                                        visualExpandProgress.animateTo(0f, tween(300))
-                                                        dragOffsetX.animateTo(0f, tween(300))
-                                                    }
-                                                }
-                                            }
-                                            TodoBoxState.EXPANDED -> {
-                                                // 修复2：阈值改为 7%
-                                                if (dragOffsetX.value > screenWidthPx * 0.07f) {
-                                                    onStateChange(TodoBoxState.NORMAL)
-                                                } else {
-                                                    dragOffsetX.animateTo(0f, tween(300))
-                                                    visualExpandProgress.animateTo(1f, tween(300))
-                                                }
-                                            }
-                                            else -> {}
-                                        }
-                                        dragType = null
-                                    }
-                                }
-                            )
-                        }
-                    }
-                    .pointerInput(boxState) {
-                        detectTapGestures(
-                            onDoubleTap = {
-                                if (boxState == TodoBoxState.EXPANDED) {
-                                    onStateChange(TodoBoxState.NORMAL)
-                                }
-                            }
-                        )
-                    }
-            ) {
-                Text(
-                    "待办事项",
-                    style = TextStyle(
-                        fontSize = fontSizes.todoTitle,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                )
-                Spacer(Modifier.height(20.dp))
-
-                Box(Modifier.weight(1f).fillMaxWidth()) {
-                    if (todos.isEmpty()) {
-                        Column(
-                            modifier = Modifier.fillMaxSize(),
-                            verticalArrangement = Arrangement.Center,
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Text(
-                                "悠闲的一天，去喝杯茶吧~",
-                                style = TextStyle(
-                                    color = Color.White.copy(0.25f),
-                                    fontSize = fontSizes.emptyText
-                                )
-                            )
-                        }
-                    } else {
-                        LazyColumn(
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            items(todos, key = { it.id }) { item ->
-                                OriginalSwipeItem(
-                                    todo = item,
-                                    onComplete = {
-                                        viewModel.complete(item.id)
-                                    },
-                                    onStar = {
-                                        viewModel.toggleStar(
-                                            item.id,
-                                            item.isStarred
-                                        )
-                                    },
-                                    fontSizes = fontSizes
-                                )
-                            }
-                        }
-                    }
-                }
-
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(top = 16.dp)
-                ) {
-                    if (visualExpandProgress.value > 0.5f) {
-                        Button(
-                            onClick = { viewModel.showSheet = true },
-                            modifier = Modifier
-                                .fillMaxWidth(0.7f)
-                                .align(Alignment.Center)
-                                .height(48.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFFFFB800)
-                            ),
-                            shape = RoundedCornerShape(24.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.Add,
-                                null,
-                                tint = Color.White,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                "添加", 
-                                fontWeight = FontWeight.Bold, 
-                                color = Color.White,
-                                fontSize = fontSizes.buttonText
-                            )
-                        }
-                    } else {
-                        FloatingActionButton(
-                            onClick = { viewModel.showSheet = true },
-                            containerColor = Color(0xFFFFB800),
-                            shape = CircleShape,
-                            modifier = Modifier.align(Alignment.Center)
-                        ) {
-                            Icon(Icons.Default.Add, null, tint = Color.White)
-                        }
-                    }
-                }
-            }
-        }
     }
 }
 
