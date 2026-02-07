@@ -60,6 +60,7 @@ dependencies {
     androidTestImplementation(composeBom)
 
     // UI 组件
+    implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.0")
     implementation("dev.chrisbanes.haze:haze:0.7.0")
     implementation("com.github.skydoves:cloudy:0.4.0")
     implementation("androidx.compose.ui:ui")
