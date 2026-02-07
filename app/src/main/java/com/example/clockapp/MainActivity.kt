@@ -33,6 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -62,7 +63,7 @@ import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.roundToInt
 
-// --- 数据库与业务逻辑 (严禁改动) ---
+// --- 数据库与数据持久化 (1:1 还原) ---
 val Context.dataStore by preferencesDataStore(name = "settings")
 
 @Entity(tableName = "todos")
@@ -98,10 +99,13 @@ class ClockApplication : Application() { val database by lazy { AppDatabase.getI
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val todoDao = (application as ClockApplication).database.todoDao()
     private val BACKGROUND_KEY = stringPreferencesKey("bg_uri")
+    
     val currentTime = flow { while(true) { emit(System.currentTimeMillis()); delay(1000) } }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), System.currentTimeMillis())
     val todos = todoDao.getAllActiveTodos().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    
     private val _bgUri = MutableStateFlow<Uri?>(null)
     val bgUri = _bgUri.asStateFlow()
+    
     var showSheet by mutableStateOf(false)
     var showDiscardDialog by mutableStateOf(false)
     var inputText by mutableStateOf("")
@@ -111,6 +115,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             getApplication<Application>().dataStore.data.map { it[BACKGROUND_KEY] }.firstOrNull()?.let { _bgUri.value = Uri.parse(it) }
         }
     }
+
     fun setBackground(uri: Uri) {
         _bgUri.value = uri
         viewModelScope.launch { 
@@ -120,16 +125,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) { e.printStackTrace() }
         }
     }
+
     fun saveTodo() {
         if (inputText.isBlank()) return
         viewModelScope.launch(Dispatchers.IO) { todoDao.insert(TodoItem(content = inputText.trim())) }
-        inputText = ""; showSheet = false
+        inputText = "" // 添加后清空文字
+        showSheet = false // 添加后收起面板
     }
+
     fun complete(id: Long) = viewModelScope.launch(Dispatchers.IO) { todoDao.markAsCompleted(id) }
-    fun toggleStar(id: Long, current: Boolean) = viewModelScope.launch(Dispatchers.IO) { todoDao.setStarred(id, !current) }
+    
+    fun toggleStar(id: Long, current: Boolean) = viewModelScope.launch(Dispatchers.IO) { 
+        todoDao.setStarred(id, !current) // 切换星标状态，支持取消
+    }
 }
 
-// --- UI 界面 ---
+// --- UI 界面层 ---
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -149,8 +160,11 @@ fun ClockTodoApp() {
     val todos by viewModel.todos.collectAsState()
     val hazeState = remember { HazeState() }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { it?.let { viewModel.setBackground(it) } }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
     Box(Modifier.fillMaxSize()) {
+        // --- 背景层应用 Haze ---
         Box(Modifier.fillMaxSize().haze(hazeState)) {
             if (bgUri != null) {
                 Image(rememberAsyncImagePainter(bgUri), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
@@ -160,8 +174,9 @@ fun ClockTodoApp() {
             }
         }
 
+        // --- 主布局 (3:1) ---
         Row(Modifier.fillMaxSize().padding(32.dp).statusBarsPadding()) {
-            // 左侧时间 (3/4)
+            // 左侧：时间区 (3/4)
             Column(Modifier.weight(0.75f).fillMaxHeight(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
                 Box(Modifier.fillMaxWidth(0.85f).fillMaxHeight(0.6f)
                     .clip(RoundedCornerShape(32.dp))
@@ -171,14 +186,15 @@ fun ClockTodoApp() {
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(time)), style = TextStyle(fontSize = 150.sp, fontWeight = FontWeight.Thin, color = Color.White))
+                        // 还原日期：年 月 日 星期
                         Text(SimpleDateFormat("yyyy年MM月dd日 EEEE", Locale.CHINESE).format(Date(time)), style = TextStyle(fontSize = 26.sp, fontWeight = FontWeight.Light, color = Color.White.copy(0.8f)))
-                        // 修正：秒数回归白色
-                        Text(SimpleDateFormat("ss", Locale.getDefault()).format(Date(time)), style = TextStyle(fontSize = 45.sp, fontWeight = FontWeight.ExtraLight, color = Color.White.copy(0.9f)))
+                        // 还原：白色秒数
+                        Text(SimpleDateFormat("ss", Locale.getDefault()).format(Date(time)), style = TextStyle(fontSize = 45.sp, fontWeight = FontWeight.ExtraLight, color = Color.White))
                     }
                 }
             }
 
-            // 右侧待办 (1/4)
+            // 右侧：待办区 (1/4)
             Column(Modifier.weight(0.25f).fillMaxHeight().padding(start = 24.dp)) {
                 Box(Modifier.fillMaxSize()
                     .clip(RoundedCornerShape(32.dp))
@@ -186,24 +202,30 @@ fun ClockTodoApp() {
                     .border(1.dp, Color.White.copy(0.15f), RoundedCornerShape(32.dp))
                 ) {
                     Column(Modifier.padding(20.dp)) {
-                        // 修正：标题左对齐，IconButton 靠右
-                        Box(Modifier.fillMaxWidth()) {
-                            Text("待办事项", style = TextStyle(fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White), modifier = Modifier.align(Alignment.CenterStart))
-                            IconButton(onClick = { launcher.launch(arrayOf("image/*")) }, modifier = Modifier.align(Alignment.CenterEnd)) { 
+                        // 【还原】待办标题在左，背景按钮在右
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text("待办事项", style = TextStyle(fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White))
+                            IconButton(onClick = { launcher.launch(arrayOf("image/*")) }) { 
                                 Icon(Icons.Default.Image, null, tint = Color.White.copy(0.4f)) 
                             }
                         }
-                        
                         Spacer(Modifier.height(20.dp))
                         
                         Box(Modifier.weight(1f)) {
                             if (todos.isEmpty()) {
-                                // 修正：显示不明显的文字
+                                // 还原空状态提示文字
                                 Text("悠闲的一天，去喝杯茶吧~", style = TextStyle(color = Color.White.copy(0.25f), fontSize = 15.sp), modifier = Modifier.align(Alignment.Center))
                             } else {
                                 LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                     items(todos, key = { it.id }) { item ->
-                                        OriginalSwipeItem(item, onComplete = { viewModel.complete(item.id) }, onStar = { viewModel.toggleStar(item.id, item.isStarred) })
+                                        OriginalSwipeItem(
+                                            todo = item, 
+                                            onComplete = { 
+                                                viewModel.complete(item.id)
+                                                scope.launch { snackbarHostState.showSnackbar("记事已完成！") }
+                                            }, 
+                                            onStar = { viewModel.toggleStar(item.id, item.isStarred) }
+                                        )
                                     }
                                 }
                             }
@@ -217,14 +239,12 @@ fun ClockTodoApp() {
             }
         }
 
-        // --- 逻辑 Bug 修复 ---
+        // --- 逻辑修复：底部 Sheet 与 确认弹窗 ---
         if (viewModel.showSheet) {
             OriginalAddTodoSheet(
                 text = viewModel.inputText,
                 onTextChange = { viewModel.inputText = it },
-                onDismiss = { 
-                    if (viewModel.inputText.isNotBlank()) viewModel.showDiscardDialog = true else viewModel.showSheet = false 
-                },
+                onDismiss = { if (viewModel.inputText.isNotBlank()) viewModel.showDiscardDialog = true else viewModel.showSheet = false },
                 onSave = { viewModel.saveTodo() }
             )
         }
@@ -235,9 +255,11 @@ fun ClockTodoApp() {
                 title = { Text("继续编辑吗？") },
                 text = { Text("您输入的内容尚未保存。") },
                 confirmButton = { 
+                    // 【逻辑修复】继续编辑：只关弹窗，Sheet 和文字不动
                     TextButton(onClick = { viewModel.showDiscardDialog = false }) { Text("继续编辑", color = Color(0xFFFFB800)) } 
                 },
                 dismissButton = { 
+                    // 放弃：清空文字并关闭所有弹窗
                     TextButton(onClick = { 
                         viewModel.inputText = ""; 
                         viewModel.showDiscardDialog = false; 
@@ -246,22 +268,38 @@ fun ClockTodoApp() {
                 }
             )
         }
+
+        // 提示层
+        SnackbarHost(hostState = snackbarHostState, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 60.dp))
     }
 }
 
+// --- 滑动组件 (还原缩放动画) ---
 @Composable
 fun OriginalSwipeItem(todo: TodoItem, onComplete: () -> Unit, onStar: () -> Unit) {
     val offsetX = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
+    
+    // 【还原】图标缩放比例随滑动位移线性变化
+    val iconScale by remember { derivedStateOf { (kotlin.math.abs(offsetX.value) / 150f).coerceIn(0f, 1.2f) } }
 
     Box(Modifier.fillMaxWidth().height(64.dp)) {
+        // 背景层图标缩放动画
         Box(Modifier.fillMaxSize()) {
-            if (offsetX.value > 60f) {
-                Box(Modifier.align(Alignment.CenterStart).padding(start = 12.dp).size(36.dp).background(Color(0xFF4CAF50), CircleShape), contentAlignment = Alignment.Center) {
-                    Icon(Icons.Default.Check, null, tint = Color.White, modifier = Modifier.size(22.dp))
+            if (offsetX.value > 10f) {
+                Box(Modifier.align(Alignment.CenterStart).padding(start = 20.dp)
+                    .graphicsLayer(scaleX = iconScale, scaleY = iconScale)
+                    .size(40.dp).background(Color(0xFF4CAF50), CircleShape), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.Check, null, tint = Color.White)
                 }
-            } else if (offsetX.value < -60f) {
-                Icon(Icons.Default.Star, null, tint = Color(0xFFFFB800), modifier = Modifier.align(Alignment.CenterEnd).padding(end = 12.dp).size(30.dp))
+            } else if (offsetX.value < -10f) {
+                Icon(
+                    Icons.Default.Star, null, 
+                    tint = Color(0xFFFFB800), 
+                    modifier = Modifier.align(Alignment.CenterEnd).padding(end = 20.dp)
+                        .graphicsLayer(scaleX = iconScale, scaleY = iconScale)
+                        .size(32.dp)
+                )
             }
         }
 
@@ -289,14 +327,17 @@ fun OriginalSwipeItem(todo: TodoItem, onComplete: () -> Unit, onStar: () -> Unit
             border = if (todo.isStarred) BorderStroke(1.dp, Color(0xFFFFB800).copy(0.4f)) else null
         ) {
             Row(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (todo.isStarred) Icon(Icons.Default.Star, null, tint = Color(0xFFFFB800), modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(10.dp))
+                if (todo.isStarred) {
+                    Icon(Icons.Default.Star, null, tint = Color(0xFFFFB800), modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(10.dp))
+                }
                 Text(todo.content, color = Color.White, fontSize = 17.sp, maxLines = 1)
             }
         }
     }
 }
 
+// --- 添加面板 (语法修复版) ---
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OriginalAddTodoSheet(text: String, onTextChange: (String) -> Unit, onDismiss: () -> Unit, onSave: () -> Unit) {
