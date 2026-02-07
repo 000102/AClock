@@ -33,4 +33,4 @@
 - **数据存储**: DataStore Preferences
 - **图片加载**: Coil
 - **最低 SDK**: 30 (Android 11)
-- **目标 SDK**: 34
+- **目标 SDK**: 36
