@@ -291,7 +291,7 @@ fun ClockTodoApp() {
     val boxOffsetX = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
 
-    // 展开进度 (0f = 正常, 1f = 全屏展开)
+    // 展开进度 (0f = 正常, 1f = 全屏展开) - 使用Animatable实现即时跟随
     val expandProgress = remember { Animatable(0f) }
 
     // 时间缩放和透明度
@@ -307,10 +307,12 @@ fun ClockTodoApp() {
             .pointerInput(boxState) {
                 detectTapGestures(
                     onDoubleTap = { offset ->
+                        // 只在非待办盒子区域才触发背景选择
                         val boxVisible = boxState != TodoBoxState.HIDDEN
                         val inBoxArea = when (boxState) {
-                            TodoBoxState.EXPANDED -> true
+                            TodoBoxState.EXPANDED -> true // 全屏时整个区域都是盒子
                             TodoBoxState.NORMAL -> {
+                                // 正常时判断是否在右侧盒子区域
                                 val boxStartX = screenWidthPx * 0.75f
                                 offset.x >= boxStartX
                             }
@@ -324,9 +326,11 @@ fun ClockTodoApp() {
                 )
             }
             .pointerInput(boxState) {
+                // 从右边缘滑动显示盒子
                 if (boxState == TodoBoxState.HIDDEN) {
                     detectHorizontalDragGestures(
                         onDragStart = { offset ->
+                            // 只在右侧50dp内响应
                             val edgeThreshold = with(density) { 50.dp.toPx() }
                             if (offset.x >= screenWidthPx - edgeThreshold) {
                                 scope.launch {
@@ -345,10 +349,12 @@ fun ClockTodoApp() {
                         onDragEnd = {
                             scope.launch {
                                 if (boxOffsetX.value < screenWidthPx * 0.5f) {
+                                    // 滑动超过一半，显示盒子
                                     boxOffsetX.animateTo(0f, tween(500))
                                     boxState = TodoBoxState.NORMAL
                                     viewModel.setBoxManuallyHidden(false)
                                 } else {
+                                    // 没滑够，收回
                                     boxOffsetX.animateTo(screenWidthPx, tween(500))
                                 }
                             }
@@ -389,13 +395,15 @@ fun ClockTodoApp() {
                 .padding(32.dp)
                 .statusBarsPadding()
         ) {
-            /* 时间区 - 修复 zIndex 用法 */
+            /* 时间区 - 在待办盒子下层 */
             Column(
                 Modifier
                     .then(
                         if (boxState == TodoBoxState.HIDDEN) {
+                            // 盒子隐藏时，时间居中
                             Modifier.fillMaxSize()
                         } else {
+                            // 盒子可见时，时间占左侧3/4
                             Modifier
                                 .fillMaxHeight()
                                 .fillMaxWidth(0.75f)
@@ -406,7 +414,7 @@ fun ClockTodoApp() {
                         scaleY = timeScale
                         alpha = timeAlpha
                     }
-                    .zIndex(0f), // 修正点：zIndex(0f) 是 Modifier 的扩展函数
+                    
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
@@ -448,8 +456,8 @@ fun ClockTodoApp() {
                 )
             }
 
-            /* 待办区 - 修复 zIndex 用法 */
-            Box(Modifier.zIndex(1f)) { // 修正点：zIndex(1f) 是 Modifier 的扩展函数
+            /* 待办区 - 在上层 */
+            Box(Modifier) {
                 TodoBoxContent(
                     boxState = boxState,
                     expandProgress = expandProgress,
@@ -465,6 +473,7 @@ fun ClockTodoApp() {
                                     expandProgress.animateTo(1f, tween(500))
                                 }
                                 TodoBoxState.NORMAL -> {
+                                    // 从展开收起到正常状态，先向左收起再从右侧弹出
                                     if (boxState == TodoBoxState.EXPANDED) {
                                         expandProgress.animateTo(0f, tween(500))
                                         boxOffsetX.animateTo(-screenWidthPx, tween(500))
@@ -512,7 +521,7 @@ fun ClockTodoApp() {
             }
         }
 
-        /* BottomSheet */
+        /* BottomSheet 常驻 */
         OriginalAddTodoSheet(
             visible = viewModel.showSheet,
             text = viewModel.inputText,
@@ -537,16 +546,20 @@ fun TodoBoxContent(
     isLandscape: Boolean
 ) {
     if (boxState == TodoBoxState.HIDDEN && boxOffsetX == 0f) {
-        return 
+        return // 完全隐藏时不渲染
     }
 
     val scope = rememberCoroutineScope()
     val dragOffsetX = remember { Animatable(0f) }
     val density = LocalDensity.current
+    
     val configuration = LocalConfiguration.current
     val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }
+    
+    // 记录拖拽类型
     var dragType by remember { mutableStateOf<String?>(null) }
     
+    // 计算实际偏移
     val actualOffsetX = when (boxState) {
         TodoBoxState.HIDDEN -> boxOffsetX
         else -> dragOffsetX.value
@@ -557,6 +570,7 @@ fun TodoBoxContent(
             .fillMaxSize()
             .offset { IntOffset(actualOffsetX.roundToInt(), 0) }
     ) {
+        // 计算盒子宽度 - 根据expandProgress
         val boxWidthFraction = 0.25f + 0.75f * expandProgress.value
 
         Box(
@@ -587,22 +601,29 @@ fun TodoBoxContent(
                     .fillMaxSize()
                     .pointerInput(Unit) {
                         detectHorizontalDragGestures(
-                            onDragStart = { dragType = null },
+                            onDragStart = {
+                                dragType = null
+                            },
                             onHorizontalDrag = { change, dragAmount ->
                                 change.consume()
+                                
                                 scope.launch {
+                                    // 根据首次滑动方向确定拖拽类型
                                     if (dragType == null && abs(dragAmount) > 5f) {
                                         dragType = if (dragAmount < 0) "expand" else "hide"
                                     }
+                                    
                                     when (boxState) {
                                         TodoBoxState.NORMAL -> {
                                             when (dragType) {
                                                 "expand" -> {
+                                                    // 左滑展开
                                                     val delta = -dragAmount / (screenWidthPx * 0.75f)
                                                     val newProgress = (expandProgress.value + delta).coerceIn(0f, 1f)
                                                     expandProgress.snapTo(newProgress)
                                                 }
                                                 "hide" -> {
+                                                    // 右滑隐藏
                                                     if (isLandscape) {
                                                         val newOffset = (dragOffsetX.value + dragAmount).coerceIn(0f, screenWidthPx)
                                                         dragOffsetX.snapTo(newOffset)
@@ -611,6 +632,7 @@ fun TodoBoxContent(
                                             }
                                         }
                                         TodoBoxState.EXPANDED -> {
+                                            // 全屏状态只能右滑收起
                                             if (dragAmount > 0) {
                                                 val delta = dragAmount / (screenWidthPx * 0.75f)
                                                 val newProgress = (expandProgress.value - delta).coerceIn(0f, 1f)
@@ -628,21 +650,26 @@ fun TodoBoxContent(
                                             when (dragType) {
                                                 "expand" -> {
                                                     if (expandProgress.value > 0.3f) {
+                                                        // 展开到全屏
                                                         expandProgress.animateTo(1f, tween(300))
                                                         onStateChange(TodoBoxState.EXPANDED)
                                                     } else {
+                                                        // 回弹到正常
                                                         expandProgress.animateTo(0f, tween(300))
                                                     }
                                                 }
                                                 "hide" -> {
                                                     if (dragOffsetX.value > screenWidthPx * 0.5f && isLandscape) {
+                                                        // 隐藏
                                                         dragOffsetX.animateTo(screenWidthPx, tween(300))
                                                         onStateChange(TodoBoxState.HIDDEN)
                                                     } else {
+                                                        // 回弹
                                                         dragOffsetX.animateTo(0f, tween(300))
                                                     }
                                                 }
                                                 else -> {
+                                                    // 回弹
                                                     expandProgress.animateTo(0f, tween(300))
                                                     dragOffsetX.animateTo(0f, tween(300))
                                                 }
@@ -650,12 +677,14 @@ fun TodoBoxContent(
                                         }
                                         TodoBoxState.EXPANDED -> {
                                             if (expandProgress.value < 0.7f) {
+                                                // 收起到正常
                                                 expandProgress.animateTo(0f, tween(300))
                                                 delay(300)
                                                 dragOffsetX.snapTo(screenWidthPx)
                                                 onStateChange(TodoBoxState.NORMAL)
                                                 dragOffsetX.animateTo(0f, tween(500))
                                             } else {
+                                                // 回弹到全屏
                                                 expandProgress.animateTo(1f, tween(300))
                                             }
                                         }
@@ -729,12 +758,14 @@ fun TodoBoxContent(
                     }
                 }
 
+                // 添加按钮 - 根据展开进度平滑切换
                 Box(
                     Modifier
                         .fillMaxWidth()
                         .padding(top = 16.dp)
                 ) {
                     if (expandProgress.value > 0.5f) {
+                        // 全屏时的长条按钮
                         Button(
                             onClick = { viewModel.showSheet = true },
                             modifier = Modifier
@@ -756,6 +787,7 @@ fun TodoBoxContent(
                             Text("添加", fontWeight = FontWeight.Bold, color = Color.White)
                         }
                     } else {
+                        // 正常时的圆形按钮
                         FloatingActionButton(
                             onClick = { viewModel.showSheet = true },
                             containerColor = Color(0xFFFFB800),
@@ -794,6 +826,8 @@ fun OriginalSwipeItem(
             .fillMaxWidth()
             .wrapContentHeight()
     ) {
+        
+        // 左滑背景 - 星标图标
         if (offsetX.value < 0) {
             Box(
                 modifier = Modifier
@@ -816,6 +850,7 @@ fun OriginalSwipeItem(
             }
         }
         
+        // 右滑背景 - 完成图标（绿色圆圈+对勾）
         if (offsetX.value > 0) {
             Box(
                 modifier = Modifier
@@ -930,8 +965,7 @@ fun OriginalAddTodoSheet(
     }
 
     if (sheetState.isVisible) {
-        BackHandler(enabled = !sheetState.isVisible ||
-                sheetState.targetValue == SheetValue.Expanded) { 
+        BackHandler(enabled = !sheetState.isVisible || sheetState.targetValue == SheetValue.Expanded) { 
             onDismiss() 
         }
 
