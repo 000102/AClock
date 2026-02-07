@@ -574,7 +574,7 @@ fun ClockTodoApp() {
                     todos = todos,
                     hazeState = hazeState,
                     viewModel = viewModel,
-                    onStateChange = { newState ->
+                    onStateChange = { newState, currentIsPortrait ->
                         scope.launch {
                             when (newState) {
                                 TodoBoxState.EXPANDED -> {
@@ -598,11 +598,7 @@ fun ClockTodoApp() {
                                         // 等待动画完成
                                         delay(350)
                                         
-                                        // 关键修复：根据当前屏幕方向决定最终状态
-                                        // 重新获取最新的屏幕方向，避免使用闭包中的旧值
-                                        val currentIsPortrait = 
-                                            LocalConfiguration.current.orientation == Configuration.ORIENTATION_PORTRAIT
-                                        
+                                        // 关键修复：根据传入的屏幕方向决定最终状态
                                         if (currentIsPortrait) {
                                             // 竖屏模式：直接隐藏
                                             boxState = TodoBoxState.HIDDEN
@@ -688,7 +684,7 @@ fun TodoBoxContent(
     todos: List<TodoItem>,
     hazeState: HazeState,
     viewModel: MainViewModel,
-    onStateChange: (TodoBoxState) -> Unit,
+    onStateChange: (TodoBoxState, Boolean) -> Unit,
     isLandscape: Boolean,
     screenWidthPx: Float,
     fontSizes: ResponsiveFontSizes,
@@ -792,7 +788,7 @@ fun TodoBoxContent(
                                                         // 阈值 7%
                                                         if (dragOffsetX.value > screenWidthPx * 0.07f && isLandscape) {
                                                             dragOffsetX.animateTo(screenWidthPx, tween(300))
-                                                            onStateChange(TodoBoxState.HIDDEN)
+                                                            onStateChange(TodoBoxState.HIDDEN, isPortrait)
                                                         } else {
                                                             dragOffsetX.animateTo(0f, tween(300))
                                                         }
@@ -800,7 +796,7 @@ fun TodoBoxContent(
                                                     "expand" -> {
                                                         // 竖屏左滑展开
                                                         if (isPortrait) {
-                                                            onStateChange(TodoBoxState.EXPANDED)
+                                                            onStateChange(TodoBoxState.EXPANDED, isPortrait)
                                                         } else {
                                                             dragOffsetX.animateTo(0f, tween(300))
                                                         }
@@ -815,7 +811,7 @@ fun TodoBoxContent(
                                                 if (dragOffsetX.value > screenWidthPx * 0.07f) {
                                                     // 触发收回
                                                     dragOffsetX.snapTo(0f) // 重置内部偏移
-                                                    onStateChange(TodoBoxState.NORMAL)
+                                                    onStateChange(TodoBoxState.NORMAL, isPortrait)
                                                 } else {
                                                     // 回弹
                                                     dragOffsetX.animateTo(0f, tween(300))
@@ -833,7 +829,7 @@ fun TodoBoxContent(
                         detectTapGestures(
                             onDoubleTap = {
                                 if (boxState == TodoBoxState.EXPANDED) {
-                                    onStateChange(TodoBoxState.NORMAL)
+                                    onStateChange(TodoBoxState.NORMAL, isPortrait)
                                 }
                             }
                         )
