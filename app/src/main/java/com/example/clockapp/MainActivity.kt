@@ -250,7 +250,7 @@ class MainActivity : ComponentActivity() {
 
 enum class TodoBoxState {
     HIDDEN,      // 完全隐藏
-    NORMAL,      // 正常显示(横屏25%)
+    NORMAL,      // 正常显示（横屏25%）
     EXPANDED,    // 全屏展开
     TRANSITIONING // 过渡状态
 }
@@ -312,7 +312,7 @@ fun ClockTodoApp() {
     val boxOffsetX = remember { Animatable(0f) }
     val expandProgress = remember { Animatable(0f) }
     
-    // 修复1: 横屏时间平移动画 - 新增状态
+    // 新增：横屏时间平移动画状态
     val timeOffsetX = remember { Animatable(0f) }
     
     val scope = rememberCoroutineScope()
@@ -328,18 +328,19 @@ fun ClockTodoApp() {
         }
         
         when (boxState) {
-            TodoBoxState.HIDDEN -> boxOffsetX.snapTo(screenWidthPx)
+            TodoBoxState.HIDDEN -> {
+                boxOffsetX.snapTo(screenWidthPx)
+                // 横屏初始化时如果盒子隐藏，时间移到屏幕中央
+                if (isLandscape) {
+                    timeOffsetX.snapTo(screenWidthPx * 0.125f)
+                }
+            }
             else -> boxOffsetX.snapTo(0f)
         }
         
         when (boxState) {
             TodoBoxState.EXPANDED -> expandProgress.snapTo(1f)
             else -> expandProgress.snapTo(0f)
-        }
-        
-        // 修复1: 初始化横屏时间位置
-        if (isLandscape && boxState == TodoBoxState.HIDDEN) {
-            timeOffsetX.snapTo(screenWidthPx * 0.125f)
         }
     }
 
@@ -359,7 +360,7 @@ fun ClockTodoApp() {
                 TodoBoxState.HIDDEN -> {
                     launch { boxOffsetX.animateTo(screenWidthPx, tween(400)) }
                     launch { expandProgress.animateTo(0f, tween(400)) }
-                    // 修复1: 横屏收回待办盒子时,时间平移到中间
+                    // 横屏收回待办盒子时，时间平移到屏幕中央
                     if (isLandscape) {
                         launch { timeOffsetX.animateTo(screenWidthPx * 0.125f, tween(400)) }
                     }
@@ -368,7 +369,7 @@ fun ClockTodoApp() {
                 TodoBoxState.NORMAL -> {
                     launch { boxOffsetX.animateTo(0f, tween(400)) }
                     launch { expandProgress.animateTo(0f, tween(400)) }
-                    // 修复1: 横屏展开待办盒子时,时间回到原位
+                    // 横屏展开待办盒子时，时间回到左侧原位
                     if (isLandscape) {
                         launch { timeOffsetX.animateTo(0f, tween(400)) }
                     }
@@ -405,8 +406,8 @@ fun ClockTodoApp() {
                 },
                 onDrag = { change, dragAmount ->
                     val (dx, dy) = dragAmount
-                    // 核心修复:竖屏防误触
-                    // 如果垂直移动距离大于水平移动距离,则认为是上/下滑,忽略
+                    // 核心修复：竖屏防误触
+                    // 如果垂直移动距离大于水平移动距离，则认为是上/下滑，忽略
                     if (abs(dy) > abs(dx)) return@detectDragGestures
 
                     change.consume()
@@ -434,7 +435,7 @@ fun ClockTodoApp() {
                             } else {
                                 boxState = TodoBoxState.TRANSITIONING
                                 launch { boxOffsetX.animateTo(0f, tween(400)) }
-                                // 修复1: 横屏展开待办盒子时,时间回到原位
+                                // 横屏展开待办盒子时，时间回到左侧原位
                                 launch { timeOffsetX.animateTo(0f, tween(400)) }
                                 boxState = TodoBoxState.NORMAL
                                 viewModel.setBoxManuallyHidden(false)
@@ -444,7 +445,7 @@ fun ClockTodoApp() {
                             boxState = TodoBoxState.TRANSITIONING
                             launch { boxOffsetX.animateTo(screenWidthPx, tween(400)) }
                             if (isLandscape) {
-                                // 修复1: 横屏收回待办盒子时,时间平移到中间
+                                // 横屏收回待办盒子时，时间平移到屏幕中央
                                 launch { timeOffsetX.animateTo(screenWidthPx * 0.125f, tween(400)) }
                                 viewModel.setBoxManuallyHidden(true)
                             }
@@ -512,7 +513,7 @@ fun ClockTodoApp() {
             Column(
                 Modifier
                     .then(
-                        // 修复2: 竖屏始终fillMaxSize保持居中，横屏根据盒子状态调整
+                        // 修复竖屏排版：竖屏始终fillMaxSize，横屏根据盒子状态调整
                         if (isPortrait) {
                             Modifier.fillMaxSize()
                         } else {
@@ -520,12 +521,9 @@ fun ClockTodoApp() {
                             else Modifier.fillMaxHeight().fillMaxWidth(0.75f)
                         }
                     )
-                    // 修复1: 横屏添加平移动画，收回盒子后移到真正的屏幕中央
+                    // 修复横屏平移：只在横屏且盒子隐藏时添加偏移
                     .offset { 
                         if (isLandscape && isEffectivelyHidden) {
-                            // 横屏盒子隐藏时，从0.75f宽度的中心移动到整个屏幕的中心
-                            // 0.75f区域的中心在0.375f位置，整个屏幕中心在0.5f位置
-                            // 需要向右偏移 (0.5 - 0.375) * screenWidthPx = 0.125 * screenWidthPx
                             IntOffset(timeOffsetX.value.roundToInt(), 0)
                         } else {
                             IntOffset(0, 0)
@@ -570,8 +568,8 @@ fun ClockTodoApp() {
             }
         }
 
-        /* 待办区 (覆盖层,无外层Padding,确保全屏) */
-        // 修复3: 竖屏时即使boxState为HIDDEN也要显示,直到动画完成
+        /* 待办区 (覆盖层，无外层Padding，确保全屏) */
+        // 修复时间消失：保持原逻辑，确保动画期间TodoBox仍然渲染
         if (boxState != TodoBoxState.HIDDEN || boxOffsetX.value < screenWidthPx * 0.99f) {
             TodoBoxContent(
                 boxState = boxState,
@@ -595,16 +593,16 @@ fun ClockTodoApp() {
                                     // 从展开收回
                                     boxState = TodoBoxState.TRANSITIONING
                                     launch { expandProgress.animateTo(0f, tween(350)) }
-                                    // 竖屏直接隐藏,横屏回NORMAL
+                                    // 竖屏直接隐藏，横屏回NORMAL
                                     if (currentIsPortrait) {
                                         // 竖屏收回逻辑
                                         launch { boxOffsetX.animateTo(screenWidthPx, tween(350)) }
                                         delay(350)
                                         boxState = TodoBoxState.HIDDEN
                                     } else {
-                                        // 横屏:回到Normal位置
+                                        // 横屏：回到Normal位置
                                         launch { boxOffsetX.animateTo(0f, tween(400)) }
-                                        // 修复1: 横屏从展开收回到Normal时,时间回到原位
+                                        // 横屏从展开收回到Normal时，时间回到左侧原位
                                         launch { timeOffsetX.animateTo(0f, tween(400)) }
                                         boxState = TodoBoxState.NORMAL
                                     }
@@ -613,12 +611,12 @@ fun ClockTodoApp() {
                                 }
                             }
                             TodoBoxState.HIDDEN -> {
-                                // 核心修复:这里只负责更新状态,动画已经在子组件完成了
+                                // 核心修复：这里只负责更新状态，动画已经在子组件完成了
                                 boxState = TodoBoxState.HIDDEN
-                                // 立即将父组件偏移量设置为屏幕外,防止闪烁
+                                // 立即将父组件偏移量设置为屏幕外，防止闪烁
                                 boxOffsetX.snapTo(screenWidthPx) 
                                 if (isLandscape) {
-                                    // 修复1: 横屏收回到HIDDEN时,时间平移到中间
+                                    // 横屏收回到HIDDEN时，时间平移到屏幕中央
                                     timeOffsetX.animateTo(screenWidthPx * 0.125f, tween(400))
                                     viewModel.setBoxManuallyHidden(true)
                                 }
@@ -642,7 +640,7 @@ fun ClockTodoApp() {
                 shape = RoundedCornerShape(12.dp)
             ) {
                 Text(
-                    "已完成!",
+                    "已完成！",
                     Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
                     color = Color.White
                 )
@@ -680,9 +678,9 @@ fun TodoBoxContent(
     var dragType by remember { mutableStateOf<String?>(null) }
     var isDragging by remember { mutableStateOf(false) }
 
-    // 核心修复:即使HIDDEN也不重置为0,直到动画完全结束
-    // 这里如果BoxState变为了HIDDEN,我们希望它保持在屏幕外(screenWidthPx),而不是跳回0
-    // 但是,因为我们改为"子组件动画结束后才切换状态",所以这里的逻辑可以简化
+    // 核心修复：即使HIDDEN也不重置为0，直到动画完全结束
+    // 这里如果BoxState变为了HIDDEN，我们希望它保持在屏幕外(screenWidthPx)，而不是跳回0
+    // 但是，因为我们改为"子组件动画结束后才切换状态"，所以这里的逻辑可以简化
     val actualOffsetX = dragOffsetX.value + boxOffsetX
 
     // 监听状态重置内部偏移
@@ -722,7 +720,7 @@ fun TodoBoxContent(
             Column(
                 Modifier
                     .fillMaxSize()
-                    .statusBarsPadding() // 确保内容不被刘海遮挡,但不影响背景铺满
+                    .statusBarsPadding() // 确保内容不被刘海遮挡，但不影响背景铺满
                     .padding(24.dp) // 内容内边距
                     .pointerInput(boxState, isPortrait, expandProgress) {
                         if (boxState == TodoBoxState.NORMAL || boxState == TodoBoxState.EXPANDED) {
@@ -746,7 +744,7 @@ fun TodoBoxContent(
                                                 }
                                             }
                                             TodoBoxState.EXPANDED -> {
-                                                // 允许双向滑动,解决卡顿
+                                                // 允许双向滑动，解决卡顿
                                                 val newOffset = (dragOffsetX.value + dragAmount).coerceIn(0f, screenWidthPx)
                                                 dragOffsetX.snapTo(newOffset)
                                             }
@@ -760,11 +758,11 @@ fun TodoBoxContent(
                                         when (boxState) {
                                             TodoBoxState.NORMAL -> {
                                                 if (dragType == "hide") {
-                                                    // 核心动画修复:
-                                                    // 1. 如果超过阈值,先在子组件内播放"滑出"动画
+                                                    // 核心动画修复：
+                                                    // 1. 如果超过阈值，先在子组件内播放"滑出"动画
                                                     if (dragOffsetX.value > screenWidthPx * 0.07f && isLandscape) {
                                                         dragOffsetX.animateTo(screenWidthPx, tween(300))
-                                                        // 2. 动画播完后,再通知父组件切换状态
+                                                        // 2. 动画播完后，再通知父组件切换状态
                                                         onStateChange(TodoBoxState.HIDDEN, isPortrait)
                                                     } else {
                                                         dragOffsetX.animateTo(0f, tween(300))
@@ -781,18 +779,18 @@ fun TodoBoxContent(
                                             }
                                             TodoBoxState.EXPANDED -> {
                                                 if (dragOffsetX.value > screenWidthPx * 0.07f) {
-                                                    // BUG修复:区分横竖屏处理
+                                                    // BUG修复：区分横竖屏处理
                                                     if (isPortrait) {
-                                                        // 竖屏模式:直接从此位置动画到隐藏
+                                                        // 竖屏模式：直接从此位置动画到隐藏
                                                         dragOffsetX.animateTo(screenWidthPx, tween(300))
                                                         onStateChange(TodoBoxState.HIDDEN, isPortrait)
                                                     } else {
-                                                        // 横屏模式:保持原始逻辑,动画回弹后通知父组件收缩
+                                                        // 横屏模式：保持原始逻辑，动画回弹后通知父组件收缩
                                                         dragOffsetX.animateTo(0f, tween(200))
                                                         onStateChange(TodoBoxState.NORMAL, isPortrait)
                                                     }
                                                 } else {
-                                                    // 如果拖动距离不够,弹回原位
+                                                    // 如果拖动距离不够，弹回原位
                                                     dragOffsetX.animateTo(0f, tween(300))
                                                 }
                                             }
@@ -832,7 +830,7 @@ fun TodoBoxContent(
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Text(
-                                "悠闲的一天,去喝杯茶吧~",
+                                "悠闲的一天，去喝杯茶吧~",
                                 style = TextStyle(
                                     color = Color.White.copy(0.25f),
                                     fontSize = fontSizes.emptyText
@@ -1034,7 +1032,7 @@ fun OriginalAddTodoSheet(
                         focusedTextColor = Color.White,
                         unfocusedTextColor = Color.White
                     ),
-                    placeholder = { Text("想做点什么?", color = Color.White.copy(0.4f)) }
+                    placeholder = { Text("想做点什么？", color = Color.White.copy(0.4f)) }
                 )
                 Spacer(Modifier.height(24.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
