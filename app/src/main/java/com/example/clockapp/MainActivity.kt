@@ -86,11 +86,12 @@ data class TodoItem(
     val createdAt: Long = System.currentTimeMillis(),
     val isCompleted: Boolean = false,
     val isStarred: Boolean = false,
-    val orderIndex: Int = 0 // 新增：用于手动排序
+    val orderIndex: Int = 0 // 用于记录手动排序的位置
 )
 
 @Dao
 interface TodoDao {
+    // 排序逻辑：完全根据 orderIndex 排序
     @Query("SELECT * FROM todos WHERE isCompleted = 0 ORDER BY orderIndex ASC")
     fun getAllActiveTodos(): Flow<List<TodoItem>>
 
@@ -198,6 +199,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (text.isBlank()) return
         viewModelScope.launch {
             withContext(Dispatchers.IO) {
+                // 新增事项放在最后
                 val maxIndex = todoDao.getMaxOrderIndex() ?: 0
                 todoDao.insert(TodoItem(content = text, orderIndex = maxIndex + 1))
             }
@@ -206,6 +208,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // 更新排序索引
     fun updateTodoOrder(newOrderList: List<TodoItem>) {
         viewModelScope.launch(Dispatchers.IO) {
             val updatedList = newOrderList.mapIndexed { index, item ->
@@ -339,7 +342,6 @@ fun ClockTodoApp() {
 
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { it?.let(viewModel::setBackground) }
 
-    // 边缘滑动逻辑修复版
     val edgeGestureModifier = Modifier.pointerInput(boxState, isPortrait) {
         if (boxState != TodoBoxState.EXPANDED && boxState != TodoBoxState.TRANSITIONING) {
             detectDragGestures(
@@ -403,7 +405,6 @@ fun ClockTodoApp() {
                 })
             }
     ) {
-        /* 背景层 */
         Box(Modifier.fillMaxSize().haze(hazeState)) {
             if (bgUri != null) {
                 Image(rememberAsyncImagePainter(bgUri), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
@@ -413,7 +414,6 @@ fun ClockTodoApp() {
             }
         }
 
-        /* 时间显示区 */
         Box(Modifier.fillMaxSize().padding(32.dp).statusBarsPadding()) {
             Column(
                 Modifier.then(if (isEffectivelyHidden) Modifier.fillMaxSize() else Modifier.fillMaxHeight().fillMaxWidth(0.75f))
@@ -429,7 +429,6 @@ fun ClockTodoApp() {
             }
         }
 
-        /* 待办区 */
         if (boxState != TodoBoxState.HIDDEN || boxOffsetX.value < screenWidthPx * 0.99f) {
             TodoBoxContent(
                 boxState = boxState, boxOffsetX = boxOffsetX.value, expandProgress = expandProgress.value,
@@ -457,7 +456,7 @@ fun ClockTodoApp() {
                                 } else boxState = TodoBoxState.NORMAL
                             }
                             TodoBoxState.HIDDEN -> {
-                                launch { expandProgress.animateTo(0f, tween(400)) } // 核心修复：确保淡入
+                                launch { expandProgress.animateTo(0f, tween(400)) }
                                 boxState = TodoBoxState.HIDDEN
                                 boxOffsetX.snapTo(screenWidthPx)
                                 if (isLandscape) viewModel.setBoxManuallyHidden(true)
@@ -495,14 +494,13 @@ fun TodoBoxContent(
     val dragOffsetX = remember { Animatable(0f) }
     var dragType by remember { mutableStateOf<String?>(null) }
     
-    // 排序专用状态
+    // 排序核心状态
     var draggingItemIndex by remember { mutableStateOf<Int?>(null) }
     var dragDeltaY by remember { mutableStateOf(0f) }
     val lazyListState = rememberLazyListState()
     val mutableTodos = remember(todos) { todos.toMutableStateList() }
 
     val actualOffsetX = dragOffsetX.value + boxOffsetX
-
     LaunchedEffect(boxState) { if (boxState == TodoBoxState.HIDDEN) dragOffsetX.snapTo(0f) }
 
     Box(Modifier.fillMaxSize().offset { IntOffset(actualOffsetX.roundToInt(), 0) }) {
@@ -523,8 +521,8 @@ fun TodoBoxContent(
                                     scope.launch {
                                         if (dragType == null && abs(dragAmount) > 5f) dragType = if (dragAmount < 0) "expand" else "hide"
                                         if ((boxState == TodoBoxState.NORMAL && dragType == "hide" && isLandscape) || boxState == TodoBoxState.EXPANDED) {
-                                            val newOffset = (dragOffsetX.value + dragAmount).coerceIn(0f, screenWidthPx)
-                                            dragOffsetX.snapTo(newOffset)
+                                            val newVal = (dragOffsetX.value + dragAmount).coerceIn(0f, screenWidthPx)
+                                            dragOffsetX.snapTo(newVal)
                                         }
                                     }
                                 },
@@ -554,7 +552,7 @@ fun TodoBoxContent(
 
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                     if (todos.isEmpty()) {
-                        Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+                        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
                             Text("悠闲的一天，去喝杯茶吧~", style = TextStyle(color = Color.White.copy(0.25f), fontSize = fontSizes.emptyText))
                         }
                     } else {
@@ -669,7 +667,7 @@ fun OriginalSwipeItem(
                 },
             color = if (todo.isStarred) Color(0xFFFFB800).copy(0.15f) else Color.White.copy(0.12f),
             shape = RoundedCornerShape(14.dp),
-            // 样式修复：拖拽时固定白色描边，星标时常驻黄色描边
+            // 样式精准控制：拖动时变为 2dp 白色描边，否则星标显黄色，普通无边框
             border = when {
                 isDragging -> BorderStroke(2.dp, Color.White)
                 todo.isStarred -> BorderStroke(1.dp, Color(0xFFFFB800).copy(0.4f))
