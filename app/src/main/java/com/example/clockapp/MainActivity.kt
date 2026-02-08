@@ -739,14 +739,21 @@ fun TodoBoxContent(
                                                     dragOffsetX.animateTo(0f, tween(300))
                                                 }
                                             }
+                                            // ==================== 修改开始 ====================
                                             TodoBoxState.EXPANDED -> {
+                                                // 当滑动距离超过阈值，视为想要关闭
                                                 if (dragOffsetX.value > screenWidthPx * 0.07f) {
-                                                    dragOffsetX.animateTo(0f, tween(200))
+                                                    // 【修复】不再播放“弹回”动画，而是直接通知父组件状态变更
                                                     onStateChange(TodoBoxState.NORMAL, isPortrait)
+                                                    
+                                                    // 【修复】将内部的拖动偏移量立即重置，因为父组件的动画会接管
+                                                    dragOffsetX.snapTo(0f)
                                                 } else {
+                                                    // 如果滑动距离不够，则平滑地动画回原位（不关闭）
                                                     dragOffsetX.animateTo(0f, tween(300))
                                                 }
                                             }
+                                            // ==================== 修改结束 ====================
                                             else -> {}
                                         }
                                         dragType = null
