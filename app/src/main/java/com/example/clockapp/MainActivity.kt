@@ -12,10 +12,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -86,13 +83,13 @@ data class TodoItem(
     val createdAt: Long = System.currentTimeMillis(),
     val isCompleted: Boolean = false,
     val isStarred: Boolean = false,
-    val orderIndex: Int = 0 // 用于记录手动排序的位置
+    [span_5](start_span)val position: Int = 0 // 新增：用于手动排序[span_5](end_span)
 )
 
 @Dao
 interface TodoDao {
-    // 排序逻辑：完全根据 orderIndex 排序
-    @Query("SELECT * FROM todos WHERE isCompleted = 0 ORDER BY orderIndex ASC")
+    [span_6](start_span)// 修改：改为按 position 排序，不再受 isStarred 影响位置[span_6](end_span)
+    @Query("SELECT * FROM todos WHERE isCompleted = 0 ORDER BY position ASC")
     fun getAllActiveTodos(): Flow<List<TodoItem>>
 
     @Insert
@@ -101,14 +98,14 @@ interface TodoDao {
     @Update
     suspend fun updateAll(todos: List<TodoItem>)
 
-    @Query("SELECT MAX(orderIndex) FROM todos")
-    suspend fun getMaxOrderIndex(): Int?
-
     @Query("UPDATE todos SET isCompleted = 1 WHERE id = :id")
     suspend fun markAsCompleted(id: Long)
 
     @Query("UPDATE todos SET isStarred = :starred WHERE id = :id")
     suspend fun setStarred(id: Long, starred: Boolean)
+    
+    @Query("SELECT MAX(position) FROM todos")
+    suspend fun getMaxPosition(): Int?
 }
 
 @Database(entities = [TodoItem::class], version = 3, exportSchema = false)
@@ -139,6 +136,7 @@ class ClockApplication : Application() {
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val todoDao = (application as ClockApplication).database.todoDao()
+
     private val BACKGROUND_KEY = stringPreferencesKey("bg_uri")
     private val TODO_BOX_HIDDEN_KEY = booleanPreferencesKey("todo_box_manually_hidden")
 
@@ -181,7 +179,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             try {
                 getApplication<Application>().contentResolver.takePersistableUriPermission(
-                    uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
                 )
             } catch (e: Exception) {}
             getApplication<Application>().dataStore.edit { it[BACKGROUND_KEY] = uri.toString() }
@@ -198,21 +197,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val text = inputText.trim()
         if (text.isBlank()) return
         viewModelScope.launch {
+            val maxPos = withContext(Dispatchers.IO) { todoDao.getMaxPosition() } ?: 0
             withContext(Dispatchers.IO) {
-                // 新增事项放在最后
-                val maxIndex = todoDao.getMaxOrderIndex() ?: 0
-                todoDao.insert(TodoItem(content = text, orderIndex = maxIndex + 1))
+                todoDao.insert(TodoItem(content = text, position = maxPos + 1))
             }
             inputText = ""
             showSheet = false
         }
     }
 
-    // 更新排序索引
-    fun updateTodoOrder(newOrderList: List<TodoItem>) {
+    [span_7](start_span)// 新增：更新所有项的顺序[span_7](end_span)
+    fun updateTodoOrder(newList: List<TodoItem>) {
         viewModelScope.launch(Dispatchers.IO) {
-            val updatedList = newOrderList.mapIndexed { index, item ->
-                item.copy(orderIndex = index)
+            val updatedList = newList.mapIndexed { index, item ->
+                item.copy(position = index)
             }
             todoDao.updateAll(updatedList)
         }
@@ -232,18 +230,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 }
 
-/* ---------- Activity & UI ---------- */
+/* ---------- Activity ---------- */
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
-        window.setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN)
+        window.setFlags(
+            WindowManager.LayoutParams.FLAG_FULLSCREEN,
+            WindowManager.LayoutParams.FLAG_FULLSCREEN
+        )
         setContent {
-            MaterialTheme(colorScheme = darkColorScheme()) { ClockTodoApp() }
+            MaterialTheme(colorScheme = darkColorScheme()) {
+                ClockTodoApp()
+            }
         }
     }
 }
+
+/* ---------- UI ---------- */
 
 enum class TodoBoxState { HIDDEN, NORMAL, EXPANDED, TRANSITIONING }
 
@@ -281,13 +286,16 @@ data class ResponsiveFontSizes(
 @Composable
 fun ClockTodoApp() {
     val viewModel: MainViewModel = viewModel(
-        factory = ViewModelProvider.AndroidViewModelFactory.getInstance(LocalContext.current.applicationContext as Application)
+        factory = ViewModelProvider.AndroidViewModelFactory
+            .getInstance(LocalContext.current.applicationContext as Application)
     )
+
     val bgUri by viewModel.bgUri.collectAsState()
     val time by viewModel.currentTime.collectAsState()
     val todos by viewModel.todos.collectAsState()
     val isBoxManuallyHidden by viewModel.isBoxManuallyHidden.collectAsState()
     val hazeState = remember { HazeState() }
+    
     val fontSizes = rememberResponsiveFontSizes()
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
@@ -296,6 +304,7 @@ fun ClockTodoApp() {
     var boxState by remember { mutableStateOf(TodoBoxState.HIDDEN) }
     val boxOffsetX = remember { Animatable(0f) }
     val expandProgress = remember { Animatable(0f) }
+    
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
     val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }
@@ -340,7 +349,9 @@ fun ClockTodoApp() {
     val boxWidthFraction = 0.25f + 0.75f * expandProgress.value
     val isEffectivelyHidden = boxState == TodoBoxState.HIDDEN && boxOffsetX.value > screenWidthPx * 0.9f
 
-    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { it?.let(viewModel::setBackground) }
+    val launcher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { it?.let(viewModel::setBackground) }
 
     val edgeGestureModifier = Modifier.pointerInput(boxState, isPortrait) {
         if (boxState != TodoBoxState.EXPANDED && boxState != TodoBoxState.TRANSITIONING) {
@@ -348,7 +359,9 @@ fun ClockTodoApp() {
                 onDragStart = { offset ->
                     val edgeThreshold = with(density) { 50.dp.toPx() }
                     if (offset.x >= screenWidthPx - edgeThreshold) {
-                        if (boxOffsetX.value < screenWidthPx) scope.launch { boxOffsetX.snapTo(screenWidthPx) }
+                        if (boxOffsetX.value < screenWidthPx) {
+                            scope.launch { boxOffsetX.snapTo(screenWidthPx) }
+                        }
                     }
                 },
                 onDrag = { change, dragAmount ->
@@ -392,18 +405,17 @@ fun ClockTodoApp() {
     }
 
     Box(
-        Modifier.fillMaxSize().then(edgeGestureModifier)
-            .pointerInput(boxState) {
-                detectTapGestures(onDoubleTap = { offset ->
-                    val boxVisible = boxState != TodoBoxState.HIDDEN && boxState != TodoBoxState.TRANSITIONING
-                    val inBoxArea = when (boxState) {
-                        TodoBoxState.EXPANDED -> true
-                        TodoBoxState.NORMAL -> offset.x >= screenWidthPx * 0.75f
-                        else -> false
-                    }
-                    if (!boxVisible || !inBoxArea) launcher.launch(arrayOf("image/*"))
-                })
-            }
+        Modifier.fillMaxSize().then(edgeGestureModifier).pointerInput(boxState) {
+            detectTapGestures(onDoubleTap = { offset ->
+                val boxVisible = boxState != TodoBoxState.HIDDEN && boxState != TodoBoxState.TRANSITIONING
+                val inBoxArea = when (boxState) {
+                    TodoBoxState.EXPANDED -> true
+                    TodoBoxState.NORMAL -> offset.x >= screenWidthPx * 0.75f
+                    else -> false
+                }
+                if (!boxVisible || !inBoxArea) { launcher.launch(arrayOf("image/*")) }
+            })
+        }
     ) {
         Box(Modifier.fillMaxSize().haze(hazeState)) {
             if (bgUri != null) {
@@ -418,7 +430,8 @@ fun ClockTodoApp() {
             Column(
                 Modifier.then(if (isEffectivelyHidden) Modifier.fillMaxSize() else Modifier.fillMaxHeight().fillMaxWidth(0.75f))
                     .graphicsLayer { scaleX = timeScale; scaleY = timeScale; alpha = timeAlpha },
-                verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Row(verticalAlignment = Alignment.Bottom) {
                     Text(SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(time)), style = TextStyle(fontSize = fontSizes.clockHourMinute, fontWeight = FontWeight.Thin, color = Color.White))
@@ -431,9 +444,14 @@ fun ClockTodoApp() {
 
         if (boxState != TodoBoxState.HIDDEN || boxOffsetX.value < screenWidthPx * 0.99f) {
             TodoBoxContent(
-                boxState = boxState, boxOffsetX = boxOffsetX.value, expandProgress = expandProgress.value,
-                boxWidthFraction = boxWidthFraction, todos = todos, hazeState = hazeState,
-                viewModel = viewModel, onStateChange = { newState, currentIsPortrait ->
+                boxState = boxState,
+                boxOffsetX = boxOffsetX.value,
+                expandProgress = expandProgress.value,
+                boxWidthFraction = boxWidthFraction,
+                todos = todos,
+                hazeState = hazeState,
+                viewModel = viewModel,
+                onStateChange = { newState, currentIsPortrait ->
                     scope.launch {
                         when (newState) {
                             TodoBoxState.EXPANDED -> {
@@ -453,19 +471,22 @@ fun ClockTodoApp() {
                                         launch { boxOffsetX.animateTo(0f, tween(400)) }
                                         boxState = TodoBoxState.NORMAL
                                     }
-                                } else boxState = TodoBoxState.NORMAL
+                                } else { boxState = TodoBoxState.NORMAL }
                             }
                             TodoBoxState.HIDDEN -> {
                                 launch { expandProgress.animateTo(0f, tween(400)) }
                                 boxState = TodoBoxState.HIDDEN
-                                boxOffsetX.snapTo(screenWidthPx)
+                                boxOffsetX.snapTo(screenWidthPx) 
                                 if (isLandscape) viewModel.setBoxManuallyHidden(true)
                             }
                             else -> {}
                         }
                     }
                 },
-                isLandscape = isLandscape, screenWidthPx = screenWidthPx, fontSizes = fontSizes, isPortrait = isPortrait
+                isLandscape = isLandscape,
+                screenWidthPx = screenWidthPx,
+                fontSizes = fontSizes,
+                isPortrait = isPortrait
             )
         }
 
@@ -476,8 +497,10 @@ fun ClockTodoApp() {
         }
 
         OriginalAddTodoSheet(
-            visible = viewModel.showSheet, text = viewModel.inputText,
-            onTextChange = { viewModel.inputText = it }, onDismiss = { viewModel.showSheet = false },
+            visible = viewModel.showSheet,
+            text = viewModel.inputText,
+            onTextChange = { viewModel.inputText = it },
+            onDismiss = { viewModel.showSheet = false },
             onSave = { viewModel.saveTodo() }
         )
     }
@@ -485,22 +508,31 @@ fun ClockTodoApp() {
 
 @Composable
 fun TodoBoxContent(
-    boxState: TodoBoxState, boxOffsetX: Float, expandProgress: Float, boxWidthFraction: Float,
-    todos: List<TodoItem>, hazeState: HazeState, viewModel: MainViewModel,
-    onStateChange: (TodoBoxState, Boolean) -> Unit, isLandscape: Boolean,
-    screenWidthPx: Float, fontSizes: ResponsiveFontSizes, isPortrait: Boolean
+    boxState: TodoBoxState,
+    boxOffsetX: Float,
+    expandProgress: Float,
+    boxWidthFraction: Float,
+    todos: List<TodoItem>,
+    hazeState: HazeState,
+    viewModel: MainViewModel,
+    onStateChange: (TodoBoxState, Boolean) -> Unit,
+    isLandscape: Boolean,
+    screenWidthPx: Float,
+    fontSizes: ResponsiveFontSizes,
+    isPortrait: Boolean
 ) {
     val scope = rememberCoroutineScope()
     val dragOffsetX = remember { Animatable(0f) }
     var dragType by remember { mutableStateOf<String?>(null) }
     
-    // 排序核心状态
+    // 拖拽排序相关状态
+    val listState = rememberLazyListState()
     var draggingItemIndex by remember { mutableStateOf<Int?>(null) }
-    var dragDeltaY by remember { mutableStateOf(0f) }
-    val lazyListState = rememberLazyListState()
-    val mutableTodos = remember(todos) { todos.toMutableStateList() }
+    var dragDisplacement by remember { mutableStateOf(0f) }
+    val todoListState = remember(todos) { todos.toMutableStateList() }
 
     val actualOffsetX = dragOffsetX.value + boxOffsetX
+
     LaunchedEffect(boxState) { if (boxState == TodoBoxState.HIDDEN) dragOffsetX.snapTo(0f) }
 
     Box(Modifier.fillMaxSize().offset { IntOffset(actualOffsetX.roundToInt(), 0) }) {
@@ -512,7 +544,7 @@ fun TodoBoxContent(
         ) {
             Column(
                 Modifier.fillMaxSize().statusBarsPadding().padding(24.dp)
-                    .pointerInput(boxState, isPortrait) {
+                    .pointerInput(boxState, isPortrait, expandProgress) {
                         if (boxState == TodoBoxState.NORMAL || boxState == TodoBoxState.EXPANDED) {
                             detectHorizontalDragGestures(
                                 onDragStart = { dragType = null },
@@ -520,23 +552,40 @@ fun TodoBoxContent(
                                     change.consume()
                                     scope.launch {
                                         if (dragType == null && abs(dragAmount) > 5f) dragType = if (dragAmount < 0) "expand" else "hide"
-                                        if ((boxState == TodoBoxState.NORMAL && dragType == "hide" && isLandscape) || boxState == TodoBoxState.EXPANDED) {
-                                            val newVal = (dragOffsetX.value + dragAmount).coerceIn(0f, screenWidthPx)
-                                            dragOffsetX.snapTo(newVal)
+                                        when (boxState) {
+                                            TodoBoxState.NORMAL -> { if (dragType == "hide" && isLandscape) dragOffsetX.snapTo((dragOffsetX.value + dragAmount).coerceIn(0f, screenWidthPx)) }
+                                            TodoBoxState.EXPANDED -> dragOffsetX.snapTo((dragOffsetX.value + dragAmount).coerceIn(0f, screenWidthPx))
+                                            else -> {}
                                         }
                                     }
                                 },
                                 onDragEnd = {
                                     scope.launch {
-                                        if (dragOffsetX.value > screenWidthPx * 0.07f) {
-                                            if (isPortrait && boxState == TodoBoxState.EXPANDED) {
-                                                onStateChange(TodoBoxState.HIDDEN, true)
-                                                dragOffsetX.animateTo(screenWidthPx, tween(300))
-                                            } else {
-                                                dragOffsetX.animateTo(0f, tween(200))
-                                                onStateChange(if (boxState == TodoBoxState.EXPANDED) TodoBoxState.NORMAL else TodoBoxState.HIDDEN, isPortrait)
+                                        when (boxState) {
+                                            TodoBoxState.NORMAL -> {
+                                                if (dragType == "hide") {
+                                                    if (dragOffsetX.value > screenWidthPx * 0.07f && isLandscape) {
+                                                        dragOffsetX.animateTo(screenWidthPx, tween(300))
+                                                        onStateChange(TodoBoxState.HIDDEN, isPortrait)
+                                                    } else dragOffsetX.animateTo(0f, tween(300))
+                                                } else if (dragType == "expand") {
+                                                    if (isPortrait) onStateChange(TodoBoxState.EXPANDED, isPortrait)
+                                                    else dragOffsetX.animateTo(0f, tween(300))
+                                                } else dragOffsetX.animateTo(0f, tween(300))
                                             }
-                                        } else dragOffsetX.animateTo(0f, tween(300))
+                                            TodoBoxState.EXPANDED -> {
+                                                if (dragOffsetX.value > screenWidthPx * 0.07f) {
+                                                    if (isPortrait) {
+                                                        onStateChange(TodoBoxState.HIDDEN, isPortrait)
+                                                        dragOffsetX.animateTo(screenWidthPx, tween(300))
+                                                    } else {
+                                                        dragOffsetX.animateTo(0f, tween(200))
+                                                        onStateChange(TodoBoxState.NORMAL, isPortrait)
+                                                    }
+                                                } else dragOffsetX.animateTo(0f, tween(300))
+                                            }
+                                            else -> {}
+                                        }
                                         dragType = null
                                     }
                                 }
@@ -556,50 +605,51 @@ fun TodoBoxContent(
                             Text("悠闲的一天，去喝杯茶吧~", style = TextStyle(color = Color.White.copy(0.25f), fontSize = fontSizes.emptyText))
                         }
                     } else {
+                        [span_8](start_span)// 拖拽排序核心逻辑[span_8](end_span)
                         LazyColumn(
-                            state = lazyListState,
+                            state = listState,
                             verticalArrangement = Arrangement.spacedBy(12.dp),
-                            modifier = Modifier.pointerInput(mutableTodos) {
+                            modifier = Modifier.pointerInput(todos) {
                                 detectDragGesturesAfterLongPress(
                                     onDragStart = { offset ->
-                                        val item = lazyListState.layoutInfo.visibleItemsInfo.firstOrNull { offset.y.toInt() in it.offset..(it.offset + it.size) }
-                                        item?.let { draggingItemIndex = it.index }
+                                        listState.layoutInfo.visibleItemsInfo.firstOrNull { item ->
+                                            offset.y.toInt() in item.offset..(item.offset + item.size)
+                                        }?.let { draggingItemIndex = it.index }
                                     },
                                     onDrag = { change, dragAmount ->
                                         change.consume()
-                                        dragDeltaY += dragAmount.y
+                                        dragDisplacement += dragAmount.y
                                         draggingItemIndex?.let { currentIndex ->
-                                            val targetIndex = if (dragDeltaY > 0) currentIndex + 1 else currentIndex - 1
-                                            if (targetIndex in mutableTodos.indices) {
-                                                val itemHeight = lazyListState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == currentIndex }?.size ?: 0
-                                                if (abs(dragDeltaY) > itemHeight * 0.6f) {
-                                                    mutableTodos.add(targetIndex, mutableTodos.removeAt(currentIndex))
-                                                    draggingItemIndex = targetIndex
-                                                    dragDeltaY = 0f
-                                                }
+                                            val targetIndex = (currentIndex + (dragDisplacement / 100).toInt()).coerceIn(0, todoListState.size - 1)
+                                            if (targetIndex != currentIndex) {
+                                                todoListState.add(targetIndex, todoListState.removeAt(currentIndex))
+                                                draggingItemIndex = targetIndex
+                                                dragDisplacement = 0f
                                             }
                                         }
                                     },
                                     onDragEnd = {
+                                        viewModel.updateTodoOrder(todoListState.toList())
                                         draggingItemIndex = null
-                                        dragDeltaY = 0f
-                                        viewModel.updateTodoOrder(mutableTodos.toList())
+                                        dragDisplacement = 0f
                                     },
-                                    onDragCancel = { draggingItemIndex = null; dragDeltaY = 0f }
+                                    onDragCancel = { draggingItemIndex = null; dragDisplacement = 0f }
                                 )
                             }
                         ) {
-                            itemsIndexed(mutableTodos, key = { _, item -> item.id }) { index, item ->
+                            itemsIndexed(todoListState, key = { _, item -> item.id }) { index, item ->
                                 val isDragging = draggingItemIndex == index
-                                Box(Modifier.zIndex(if (isDragging) 1f else 0f)) {
-                                    OriginalSwipeItem(
-                                        todo = item,
-                                        isDragging = isDragging,
-                                        onComplete = { viewModel.complete(item.id) },
-                                        onStar = { viewModel.toggleStar(item.id, item.isStarred) },
-                                        fontSizes = fontSizes
-                                    )
-                                }
+                                OriginalSwipeItem(
+                                    todo = item,
+                                    onComplete = { viewModel.complete(item.id) },
+                                    onStar = { viewModel.toggleStar(item.id, item.isStarred) },
+                                    fontSizes = fontSizes,
+                                    [span_9](start_span)isDragging = isDragging, // 传递拖拽状态[span_9](end_span)
+                                    modifier = Modifier.animateItem(
+                                        placementSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                                        fadeInSpec = null, fadeOutSpec = null
+                                    ).zIndex(if (isDragging) 1f else 0f)
+                                )
                             }
                         }
                     }
@@ -626,16 +676,24 @@ fun TodoBoxContent(
 @Composable
 fun OriginalSwipeItem(
     todo: TodoItem,
-    isDragging: Boolean,
     onComplete: () -> Unit,
     onStar: () -> Unit,
-    fontSizes: ResponsiveFontSizes
+    fontSizes: ResponsiveFontSizes,
+    isDragging: Boolean = false, // 新增参数
+    modifier: Modifier = Modifier
 ) {
     val offsetX = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
     val iconScale by remember { derivedStateOf { (abs(offsetX.value) / 150f).coerceIn(0f, 1.2f) } }
 
-    Box(Modifier.fillMaxWidth().wrapContentHeight()) {
+    [span_10](start_span)// 根据需求确定边框：拖拽时固定为白色，平时重点项为黄色[span_10](end_span)
+    val borderStroke = when {
+        isDragging -> BorderStroke(2.dp, Color.White)
+        todo.isStarred -> BorderStroke(1.dp, Color(0xFFFFB800).copy(0.4f))
+        else -> null
+    }
+
+    Box(modifier.fillMaxWidth().wrapContentHeight()) {
         if (offsetX.value < 0) {
             Box(Modifier.matchParentSize().padding(end = 16.dp), contentAlignment = Alignment.CenterEnd) {
                 Icon(Icons.Default.Star, null, tint = Color(0xFFFFB800), modifier = Modifier.size(28.dp).graphicsLayer { scaleX = iconScale; scaleY = iconScale; alpha = iconScale.coerceIn(0f, 1f) })
@@ -653,7 +711,10 @@ fun OriginalSwipeItem(
             modifier = Modifier.offset { IntOffset(offsetX.value.roundToInt(), 0) }.fillMaxWidth().wrapContentHeight()
                 .pointerInput(todo) {
                     detectHorizontalDragGestures(
-                        onHorizontalDrag = { change, dragAmount -> change.consume(); scope.launch { offsetX.snapTo(offsetX.value + dragAmount) } },
+                        onHorizontalDrag = { change, dragAmount ->
+                            change.consume()
+                            scope.launch { offsetX.snapTo(offsetX.value + dragAmount) }
+                        },
                         onDragEnd = {
                             scope.launch {
                                 when {
@@ -667,12 +728,7 @@ fun OriginalSwipeItem(
                 },
             color = if (todo.isStarred) Color(0xFFFFB800).copy(0.15f) else Color.White.copy(0.12f),
             shape = RoundedCornerShape(14.dp),
-            // 样式精准控制：拖动时变为 2dp 白色描边，否则星标显黄色，普通无边框
-            border = when {
-                isDragging -> BorderStroke(2.dp, Color.White)
-                todo.isStarred -> BorderStroke(1.dp, Color(0xFFFFB800).copy(0.4f))
-                else -> null
-            }
+            border = borderStroke
         ) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (todo.isStarred) {
@@ -688,20 +744,22 @@ fun OriginalSwipeItem(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OriginalAddTodoSheet(
-    visible: Boolean, text: String, onTextChange: (String) -> Unit,
-    onDismiss: () -> Unit, onSave: () -> Unit
+    visible: Boolean,
+    text: String,
+    onTextChange: (String) -> Unit,
+    onDismiss: () -> Unit,
+    onSave: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     LaunchedEffect(visible) { if (visible) sheetState.show() else sheetState.hide() }
     if (sheetState.isVisible) {
         BackHandler(enabled = true) { onDismiss() }
-        ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = Color(0xFF1C1C1E)) {
+        ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, dragHandle = { BottomSheetDefaults.DragHandle() }, containerColor = Color(0xFF1C1C1E)) {
             Column(Modifier.padding(24.dp).padding(bottom = 32.dp)) {
                 Text("新建待办事项", style = TextStyle(fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White))
                 Spacer(Modifier.height(20.dp))
                 OutlinedTextField(
-                    value = text, onValueChange = onTextChange, modifier = Modifier.fillMaxWidth(),
-                    textStyle = TextStyle(color = Color.White),
+                    value = text, onValueChange = onTextChange, modifier = Modifier.fillMaxWidth(), textStyle = TextStyle(color = Color.White),
                     colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color(0xFFFFB800), unfocusedBorderColor = Color.White.copy(0.3f), focusedTextColor = Color.White, unfocusedTextColor = Color.White),
                     placeholder = { Text("想做点什么？", color = Color.White.copy(0.4f)) }
                 )
@@ -709,9 +767,7 @@ fun OriginalAddTodoSheet(
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     TextButton(onClick = onDismiss) { Text("取消", color = Color.White.copy(0.6f)) }
                     Spacer(Modifier.width(12.dp))
-                    Button(onClick = onSave, enabled = text.isNotBlank(), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFB800))) {
-                        Text("添加", fontWeight = FontWeight.Bold)
-                    }
+                    Button(onClick = onSave, enabled = text.isNotBlank(), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFB800))) { Text("添加", fontWeight = FontWeight.Bold) }
                 }
             }
         }
