@@ -330,10 +330,6 @@ fun ClockTodoApp() {
         when (boxState) {
             TodoBoxState.HIDDEN -> {
                 boxOffsetX.snapTo(screenWidthPx)
-                // 横屏初始化时如果盒子隐藏，时间移到屏幕中央
-                if (isLandscape) {
-                    timeOffsetX.snapTo(screenWidthPx * 0.125f)
-                }
             }
             else -> boxOffsetX.snapTo(0f)
         }
@@ -341,6 +337,11 @@ fun ClockTodoApp() {
         when (boxState) {
             TodoBoxState.EXPANDED -> expandProgress.snapTo(1f)
             else -> expandProgress.snapTo(0f)
+        }
+        
+        // 横屏时间偏移初始化：盒子隐藏时需要偏移
+        if (isLandscape && boxState == TodoBoxState.HIDDEN) {
+            timeOffsetX.snapTo(screenWidthPx * 0.125f)
         }
     }
 
@@ -513,7 +514,7 @@ fun ClockTodoApp() {
             Column(
                 Modifier
                     .then(
-                        // 修复竖屏排版：竖屏始终fillMaxSize，横屏根据盒子状态调整
+                        // 修复竖屏排版：竖屏始终fillMaxSize保持居中，横屏保持原逻辑
                         if (isPortrait) {
                             Modifier.fillMaxSize()
                         } else {
@@ -521,18 +522,14 @@ fun ClockTodoApp() {
                             else Modifier.fillMaxHeight().fillMaxWidth(0.75f)
                         }
                     )
-                    // 修复横屏平移：只在横屏且盒子隐藏时添加偏移
-                    .offset { 
-                        if (isLandscape && isEffectivelyHidden) {
-                            IntOffset(timeOffsetX.value.roundToInt(), 0)
-                        } else {
-                            IntOffset(0, 0)
-                        }
-                    }
                     .graphicsLayer {
                         scaleX = timeScale
                         scaleY = timeScale
                         alpha = timeAlpha
+                        // 修复横屏平移：在graphicsLayer中添加平移动画
+                        if (isLandscape) {
+                            translationX = timeOffsetX.value
+                        }
                     },
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally
