@@ -536,6 +536,8 @@ fun ClockTodoApp() {
                                 }
                             }
                             TodoBoxState.HIDDEN -> {
+                                // 核心修复：在此处加入 expandProgress 回零的动画，确保时间日期重新显示
+                                launch { expandProgress.animateTo(0f, tween(400)) }
                                 boxState = TodoBoxState.HIDDEN
                                 boxOffsetX.snapTo(screenWidthPx) 
                                 if (isLandscape) viewModel.setBoxManuallyHidden(true)
@@ -686,9 +688,9 @@ fun TodoBoxContent(
                                             TodoBoxState.EXPANDED -> {
                                                 if (dragOffsetX.value > screenWidthPx * 0.07f) {
                                                     if (isPortrait) {
-                                                        // 核心修复：竖屏手势收回时，动画向右滑出而非回弹
-                                                        dragOffsetX.animateTo(screenWidthPx, tween(300))
+                                                        // 同步触发状态改变和向右滑出的动画
                                                         onStateChange(TodoBoxState.HIDDEN, isPortrait)
+                                                        dragOffsetX.animateTo(screenWidthPx, tween(300))
                                                     } else {
                                                         dragOffsetX.animateTo(0f, tween(200))
                                                         onStateChange(TodoBoxState.NORMAL, isPortrait)
@@ -902,7 +904,7 @@ fun OriginalAddTodoSheet(
                     TextButton(onClick = onDismiss) { Text("取消", color = Color.White.copy(0.6f)) }
                     Spacer(Modifier.width(12.dp))
                     Button(
-                        onClick = onSave,
+                        onClick = nSave,
                         enabled = text.isNotBlank(),
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFB800))
                     ) { Text("添加", fontWeight = FontWeight.Bold) }
