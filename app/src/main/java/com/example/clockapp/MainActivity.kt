@@ -380,9 +380,8 @@ fun ClockTodoApp() {
     }
 
     // 视觉属性
-    // 修复2: 竖屏时时间不受expandProgress影响
-    val timeAlpha = if (isPortrait) 1f else (1f - expandProgress.value)
-    val timeScale = if (isPortrait) 1f else (1f - expandProgress.value * 0.3f)
+    val timeAlpha = 1f - expandProgress.value
+    val timeScale = 1f - expandProgress.value * 0.3f
     val boxWidthFraction = 0.25f + 0.75f * expandProgress.value
     
     val isEffectivelyHidden = boxState == TodoBoxState.HIDDEN && boxOffsetX.value > screenWidthPx * 0.9f
@@ -513,13 +512,24 @@ fun ClockTodoApp() {
             Column(
                 Modifier
                     .then(
-                        if (isEffectivelyHidden) Modifier.fillMaxSize()
-                        else Modifier.fillMaxHeight().fillMaxWidth(0.75f)
+                        // 修复2: 竖屏始终fillMaxSize保持居中，横屏根据盒子状态调整
+                        if (isPortrait) {
+                            Modifier.fillMaxSize()
+                        } else {
+                            if (isEffectivelyHidden) Modifier.fillMaxSize()
+                            else Modifier.fillMaxHeight().fillMaxWidth(0.75f)
+                        }
                     )
-                    // 修复1: 横屏添加平移动画
+                    // 修复1: 横屏添加平移动画，收回盒子后移到真正的屏幕中央
                     .offset { 
-                        if (isLandscape) IntOffset(timeOffsetX.value.roundToInt(), 0) 
-                        else IntOffset(0, 0)
+                        if (isLandscape && isEffectivelyHidden) {
+                            // 横屏盒子隐藏时，从0.75f宽度的中心移动到整个屏幕的中心
+                            // 0.75f区域的中心在0.375f位置，整个屏幕中心在0.5f位置
+                            // 需要向右偏移 (0.5 - 0.375) * screenWidthPx = 0.125 * screenWidthPx
+                            IntOffset(timeOffsetX.value.roundToInt(), 0)
+                        } else {
+                            IntOffset(0, 0)
+                        }
                     }
                     .graphicsLayer {
                         scaleX = timeScale
