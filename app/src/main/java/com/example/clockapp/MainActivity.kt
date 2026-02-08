@@ -489,41 +489,16 @@ fun ClockTodoApp() {
                 .padding(32.dp) // 这里保留Padding给时间
                 .statusBarsPadding()
         ) {
-            // 计算横屏平移动画值
-            val landscapeTranslation by remember {
-                derivedStateOf {
-                    if (isLandscape && !isEffectivelyHidden) {
-                        // 盒子显示时，时间不需要平移
-                        0f
-                    } else if (isLandscape && isEffectivelyHidden) {
-                        // 盒子隐藏时，时间需要从0.75区域中心平移到整个屏幕中心
-                        // 0.75区域的中心在屏幕的 0.375 位置 (0.75 / 2)
-                        // 整个屏幕的中心在 0.5 位置
-                        // 需要向右平移的距离是 (0.5 - 0.375) * screenWidthPx = 0.125 * screenWidthPx
-                        screenWidthPx * 0.125f
-                    } else {
-                        0f
-                    }
-                }
-            }
-            
             Column(
                 Modifier
                     .then(
-                        // 修复竖屏排版：竖屏始终fillMaxSize，横屏保持原来的逻辑
-                        if (isPortrait) {
-                            Modifier.fillMaxSize()
-                        } else {
-                            if (isEffectivelyHidden) Modifier.fillMaxSize()
-                            else Modifier.fillMaxHeight().fillMaxWidth(0.75f)
-                        }
+                        if (isEffectivelyHidden) Modifier.fillMaxSize()
+                        else Modifier.fillMaxHeight().fillMaxWidth(0.75f)
                     )
                     .graphicsLayer {
                         scaleX = timeScale
                         scaleY = timeScale
                         alpha = timeAlpha
-                        // 修复横屏平移：添加平移动画
-                        translationX = landscapeTranslation
                     },
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally
@@ -590,7 +565,8 @@ fun ClockTodoApp() {
                                         delay(350)
                                         boxState = TodoBoxState.HIDDEN
                                     } else {
-                                        // 横屏：回到 Normal 位置
+                                        // 横屏：先滑出再滑回（如果你想要这个视觉效果），或者直接复位
+                                        // 简化：直接回到 Normal 位置
                                         launch { boxOffsetX.animateTo(0f, tween(400)) }
                                         boxState = TodoBoxState.NORMAL
                                     }
@@ -664,6 +640,9 @@ fun TodoBoxContent(
     var dragType by remember { mutableStateOf<String?>(null) }
     var isDragging by remember { mutableStateOf(false) }
 
+    // 核心修复：即使HIDDEN也不重置为0，直到动画完全结束
+    // 这里如果BoxState变为了HIDDEN，我们希望它保持在屏幕外(screenWidthPx)，而不是跳回0
+    // 但是，因为我们改为“子组件动画结束后才切换状态”，所以这里的逻辑可以简化
     val actualOffsetX = dragOffsetX.value + boxOffsetX
 
     // 监听状态重置内部偏移
@@ -703,8 +682,8 @@ fun TodoBoxContent(
             Column(
                 Modifier
                     .fillMaxSize()
-                    .statusBarsPadding()
-                    .padding(24.dp)
+                    .statusBarsPadding() // 确保内容不被刘海遮挡，但不影响背景铺满
+                    .padding(24.dp) // 内容内边距
                     .pointerInput(boxState, isPortrait, expandProgress) {
                         if (boxState == TodoBoxState.NORMAL || boxState == TodoBoxState.EXPANDED) {
                             detectHorizontalDragGestures(
@@ -727,6 +706,7 @@ fun TodoBoxContent(
                                                 }
                                             }
                                             TodoBoxState.EXPANDED -> {
+                                                // 允许双向滑动，解决卡顿
                                                 val newOffset = (dragOffsetX.value + dragAmount).coerceIn(0f, screenWidthPx)
                                                 dragOffsetX.snapTo(newOffset)
                                             }
@@ -740,8 +720,11 @@ fun TodoBoxContent(
                                         when (boxState) {
                                             TodoBoxState.NORMAL -> {
                                                 if (dragType == "hide") {
+                                                    // 核心动画修复：
+                                                    // 1. 如果超过阈值，先在子组件内播放“滑出”动画
                                                     if (dragOffsetX.value > screenWidthPx * 0.07f && isLandscape) {
                                                         dragOffsetX.animateTo(screenWidthPx, tween(300))
+                                                        // 2. 动画播完后，再通知父组件切换状态
                                                         onStateChange(TodoBoxState.HIDDEN, isPortrait)
                                                     } else {
                                                         dragOffsetX.animateTo(0f, tween(300))
@@ -758,13 +741,8 @@ fun TodoBoxContent(
                                             }
                                             TodoBoxState.EXPANDED -> {
                                                 if (dragOffsetX.value > screenWidthPx * 0.07f) {
-                                                    if (isPortrait) {
-                                                        dragOffsetX.animateTo(screenWidthPx, tween(300))
-                                                        onStateChange(TodoBoxState.HIDDEN, isPortrait)
-                                                    } else {
-                                                        dragOffsetX.animateTo(0f, tween(200))
-                                                        onStateChange(TodoBoxState.NORMAL, isPortrait)
-                                                    }
+                                                    dragOffsetX.animateTo(0f, tween(200))
+                                                    onStateChange(TodoBoxState.NORMAL, isPortrait)
                                                 } else {
                                                     dragOffsetX.animateTo(0f, tween(300))
                                                 }
