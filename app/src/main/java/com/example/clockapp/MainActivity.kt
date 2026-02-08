@@ -538,12 +538,11 @@ fun ClockTodoApp() {
         if (boxState != TodoBoxState.HIDDEN || boxOffsetX.value < screenWidthPx * 0.99f) {
             TodoBoxContent(
                 boxState = boxState,
-                boxOffsetX = boxOffsetX.value,
-                expandProgress = expandProgress.value,
+                boxOffsetX = boxOffsetX, // Pass the animatable object
+                expandProgress = expandProgress, // Pass the animatable object
                 boxWidthFraction = boxWidthFraction,
                 todos = todos,
                 hazeState = hazeState,
-                viewModel = viewModel,
                 onStateChange = { newState, currentIsPortrait ->
                     scope.launch {
                         // 状态切换回调
@@ -565,8 +564,7 @@ fun ClockTodoApp() {
                                         delay(350)
                                         boxState = TodoBoxState.HIDDEN
                                     } else {
-                                        // 横屏：先滑出再滑回（如果你想要这个视觉效果），或者直接复位
-                                        // 简化：直接回到 Normal 位置
+                                        // 横屏
                                         launch { boxOffsetX.animateTo(0f, tween(400)) }
                                         boxState = TodoBoxState.NORMAL
                                     }
@@ -575,9 +573,7 @@ fun ClockTodoApp() {
                                 }
                             }
                             TodoBoxState.HIDDEN -> {
-                                // 核心修复：这里只负责更新状态，动画已经在子组件完成了
                                 boxState = TodoBoxState.HIDDEN
-                                // 立即将父组件偏移量设置为屏幕外，防止闪烁
                                 boxOffsetX.snapTo(screenWidthPx) 
                                 if (isLandscape) {
                                     viewModel.setBoxManuallyHidden(true)
@@ -623,12 +619,11 @@ fun ClockTodoApp() {
 @Composable
 fun TodoBoxContent(
     boxState: TodoBoxState,
-    boxOffsetX: Float,
-    expandProgress: Float,
+    boxOffsetX: Animatable<Float, *>, // Changed to Animatable
+    expandProgress: Animatable<Float, *>, // Changed to Animatable
     boxWidthFraction: Float,
     todos: List<TodoItem>,
     hazeState: HazeState,
-    viewModel: MainViewModel,
     onStateChange: (TodoBoxState, Boolean) -> Unit,
     isLandscape: Boolean,
     screenWidthPx: Float,
@@ -636,45 +631,31 @@ fun TodoBoxContent(
     isPortrait: Boolean
 ) {
     val scope = rememberCoroutineScope()
-    val dragOffsetX = remember { Animatable(0f) }
-    var dragType by remember { mutableStateOf<String?>(null) }
-    var isDragging by remember { mutableStateOf(false) }
-
-    // 核心修复：即使HIDDEN也不重置为0，直到动画完全结束
-    // 这里如果BoxState变为了HIDDEN，我们希望它保持在屏幕外(screenWidthPx)，而不是跳回0
-    // 但是，因为我们改为“子组件动画结束后才切换状态”，所以这里的逻辑可以简化
-    val actualOffsetX = dragOffsetX.value + boxOffsetX
-
-    // 监听状态重置内部偏移
-    LaunchedEffect(boxState) {
-        if (boxState == TodoBoxState.HIDDEN) {
-            dragOffsetX.snapTo(0f)
-        }
-    }
+    val expandProgressValue = expandProgress.value
 
     Box(
         Modifier
             .fillMaxSize()
-            .offset { IntOffset(actualOffsetX.roundToInt(), 0) }
+            .offset { IntOffset(boxOffsetX.value.roundToInt(), 0) }
     ) {
         Box(
             Modifier
                 .fillMaxHeight()
                 .fillMaxWidth(boxWidthFraction)
                 .align(Alignment.CenterEnd)
-                .clip(RoundedCornerShape(32.dp * (1f - expandProgress)))
+                .clip(RoundedCornerShape(32.dp * (1f - expandProgressValue)))
                 .hazeChild(
                     state = hazeState,
-                    shape = RoundedCornerShape(32.dp * (1f - expandProgress)),
+                    shape = RoundedCornerShape(32.dp * (1f - expandProgressValue)),
                     tint = Color.White.copy(0.1f),
                     blurRadius = 25.dp
                 )
                 .then(
-                    if (expandProgress < 1f) {
+                    if (expandProgressValue < 1f) {
                         Modifier.border(
                             1.dp,
                             Color.White.copy(0.15f),
-                            RoundedCornerShape(32.dp * (1f - expandProgress))
+                            RoundedCornerShape(32.dp * (1f - expandProgressValue))
                         )
                     } else Modifier
                 )
@@ -682,81 +663,48 @@ fun TodoBoxContent(
             Column(
                 Modifier
                     .fillMaxSize()
-                    .statusBarsPadding() // 确保内容不被刘海遮挡，但不影响背景铺满
-                    .padding(24.dp) // 内容内边距
-                    .pointerInput(boxState, isPortrait, expandProgress) {
+                    .statusBarsPadding()
+                    .padding(24.dp)
+                    // ==================== REVISED GESTURE LOGIC ====================
+                    .pointerInput(boxState, isPortrait) {
                         if (boxState == TodoBoxState.NORMAL || boxState == TodoBoxState.EXPANDED) {
                             detectHorizontalDragGestures(
-                                onDragStart = {
-                                    dragType = null
-                                    isDragging = true
-                                },
                                 onHorizontalDrag = { change, dragAmount ->
                                     change.consume()
                                     scope.launch {
-                                        if (dragType == null && abs(dragAmount) > 5f) {
-                                            dragType = if (dragAmount < 0) "expand" else "hide"
+                                        val currentOffset = boxOffsetX.value
+                                        val newOffset = (currentOffset + dragAmount)
+
+                                        // In landscape normal mode, only allow dragging right (to hide)
+                                        if (boxState == TodoBoxState.NORMAL && isLandscape && newOffset < currentOffset) {
+                                            return@launch
                                         }
 
-                                        when (boxState) {
-                                            TodoBoxState.NORMAL -> {
-                                                if (dragType == "hide" && isLandscape) {
-                                                    val newOffset = (dragOffsetX.value + dragAmount).coerceIn(0f, screenWidthPx)
-                                                    dragOffsetX.snapTo(newOffset)
-                                                }
-                                            }
-                                            TodoBoxState.EXPANDED -> {
-                                                // 允许双向滑动，解决卡顿
-                                                val newOffset = (dragOffsetX.value + dragAmount).coerceIn(0f, screenWidthPx)
-                                                dragOffsetX.snapTo(newOffset)
-                                            }
-                                            else -> {}
+                                        boxOffsetX.snapTo(newOffset.coerceAtLeast(0f))
+
+                                        // Link expandProgress to the offset when in portrait
+                                        if (isPortrait) {
+                                            val progress = 1f - (boxOffsetX.value / screenWidthPx)
+                                            expandProgress.snapTo(progress.coerceIn(0f, 1f))
                                         }
                                     }
                                 },
                                 onDragEnd = {
-                                    isDragging = false
                                     scope.launch {
-                                        when (boxState) {
-                                            TodoBoxState.NORMAL -> {
-                                                if (dragType == "hide") {
-                                                    // 核心动画修复：
-                                                    // 1. 如果超过阈值，先在子组件内播放“滑出”动画
-                                                    if (dragOffsetX.value > screenWidthPx * 0.07f && isLandscape) {
-                                                        dragOffsetX.animateTo(screenWidthPx, tween(300))
-                                                        // 2. 动画播完后，再通知父组件切换状态
-                                                        onStateChange(TodoBoxState.HIDDEN, isPortrait)
-                                                    } else {
-                                                        dragOffsetX.animateTo(0f, tween(300))
-                                                    }
-                                                } else if (dragType == "expand") {
-                                                    if (isPortrait) {
-                                                        onStateChange(TodoBoxState.EXPANDED, isPortrait)
-                                                    } else {
-                                                        dragOffsetX.animateTo(0f, tween(300))
-                                                    }
-                                                } else {
-                                                    dragOffsetX.animateTo(0f, tween(300))
-                                                }
-                                            }
-                                            // ==================== 修改开始 ====================
-                                            TodoBoxState.EXPANDED -> {
-                                                // 当滑动距离超过阈值，视为想要关闭
-                                                if (dragOffsetX.value > screenWidthPx * 0.07f) {
-                                                    // 【修复】不再播放“弹回”动画，而是直接通知父组件状态变更
-                                                    onStateChange(TodoBoxState.NORMAL, isPortrait)
-                                                    
-                                                    // 【修复】将内部的拖动偏移量立即重置，因为父组件的动画会接管
-                                                    dragOffsetX.snapTo(0f)
-                                                } else {
-                                                    // 如果滑动距离不够，则平滑地动画回原位（不关闭）
-                                                    dragOffsetX.animateTo(0f, tween(300))
-                                                }
-                                            }
-                                            // ==================== 修改结束 ====================
-                                            else -> {}
+                                        val threshold = screenWidthPx * 0.25f
+                                        if (boxOffsetX.value > threshold) {
+                                            // Animate to hidden
+                                            launch { boxOffsetX.animateTo(screenWidthPx, tween(300)) }
+                                            launch { expandProgress.animateTo(0f, tween(300)) }
+                                            delay(300) // Wait for anim to finish
+                                            onStateChange(TodoBoxState.HIDDEN, isPortrait)
+                                        } else {
+                                            // Animate back to original state
+                                            val targetOffset = if (boxState == TodoBoxState.NORMAL && isLandscape) 0f else 0f
+                                            val targetProgress = if (boxState == TodoBoxState.EXPANDED) 1f else 0f
+                                            launch { boxOffsetX.animateTo(targetOffset, spring(Spring.DampingRatioMediumBouncy)) }
+                                            launch { expandProgress.animateTo(targetProgress, spring(Spring.DampingRatioMediumBouncy)) }
                                         }
-                                        dragType = null
                                     }
                                 }
                             )
@@ -798,6 +746,11 @@ fun TodoBoxContent(
                             )
                         }
                     } else {
+                        // We need to get the view model from composition context
+                        val viewModel: MainViewModel = viewModel(
+                            factory = ViewModelProvider.AndroidViewModelFactory
+                                .getInstance(LocalContext.current.applicationContext as Application)
+                        )
                         LazyColumn(
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
@@ -816,7 +769,11 @@ fun TodoBoxContent(
                 Box(
                     Modifier.fillMaxWidth().padding(top = 16.dp)
                 ) {
-                    if (expandProgress > 0.5f) {
+                    val viewModel: MainViewModel = viewModel(
+                        factory = ViewModelProvider.AndroidViewModelFactory
+                            .getInstance(LocalContext.current.applicationContext as Application)
+                    )
+                    if (expandProgress.value > 0.5f) {
                         Button(
                             onClick = { viewModel.showSheet = true },
                             modifier = Modifier.fillMaxWidth(0.7f).align(Alignment.Center).height(48.dp),
