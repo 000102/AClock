@@ -904,7 +904,7 @@ fun OriginalAddTodoSheet(
                     TextButton(onClick = onDismiss) { Text("取消", color = Color.White.copy(0.6f)) }
                     Spacer(Modifier.width(12.dp))
                     Button(
-                        onClick = nSave,
+                        onClick = onSave,
                         enabled = text.isNotBlank(),
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFB800))
                     ) { Text("添加", fontWeight = FontWeight.Bold) }
