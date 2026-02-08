@@ -428,7 +428,7 @@ fun ClockTodoApp() {
                                 // 横屏显示正常状态
                                 boxState = TodoBoxState.TRANSITIONING
                                 launch { 
-                                    boxOffsetX.animateTo(0f, tween(400)) 
+                                   boxOffsetX.animateTo(0f, tween(400)) 
                                 }
                                 boxState = TodoBoxState.NORMAL
                                 viewModel.setBoxManuallyHidden(false)
@@ -695,11 +695,18 @@ fun TodoBoxContent(
     var dragType by remember { mutableStateOf<String?>(null) }
     var isDragging by remember { mutableStateOf(false) }
     
-    // 实际偏移量 = 基础偏移 + 拖拽偏移
-    val actualOffsetX = if (boxState == TodoBoxState.EXPANDED || boxState == TodoBoxState.NORMAL) {
+    // 【修复1】：只要不是完全隐藏，就允许叠加拖拽偏移量，防止松手时的闪烁
+    val actualOffsetX = if (boxState != TodoBoxState.HIDDEN) {
         dragOffsetX.value + boxOffsetX
     } else {
         boxOffsetX
+    }
+
+    // 当状态真正变为 HIDDEN 时，重置内部的拖拽偏移量
+    LaunchedEffect(boxState) {
+        if (boxState == TodoBoxState.HIDDEN) {
+            dragOffsetX.snapTo(0f)
+        }
     }
 
     Box(
@@ -743,7 +750,6 @@ fun TodoBoxContent(
                                 },
                                 onHorizontalDrag = { change, dragAmount ->
                                     change.consume()
-                                    
                                     scope.launch {
                                         // 首次滑动确定方向
                                         if (dragType == null && abs(dragAmount) > 5f) {
@@ -768,11 +774,10 @@ fun TodoBoxContent(
                                                 }
                                             }
                                             TodoBoxState.EXPANDED -> {
-                                                if (dragAmount > 0) {
-                                                    // 右滑收起
-                                                    val newOffset = (dragOffsetX.value + dragAmount).coerceIn(0f, screenWidthPx)
-                                                    dragOffsetX.snapTo(newOffset)
-                                                }
+                                                // 【修复2】：移除了 dragAmount > 0 的限制，允许自由拖动
+                                                // 这样解决了竖屏右滑时的抖动和回滑卡死问题
+                                                val newOffset = (dragOffsetX.value + dragAmount).coerceIn(0f, screenWidthPx)
+                                                dragOffsetX.snapTo(newOffset)
                                             }
                                             else -> {}
                                         }
@@ -787,6 +792,7 @@ fun TodoBoxContent(
                                                     "hide" -> {
                                                         // 阈值 7%
                                                         if (dragOffsetX.value > screenWidthPx * 0.07f && isLandscape) {
+                                                            // 先执行动画，再改变状态，避免视觉跳变
                                                             dragOffsetX.animateTo(screenWidthPx, tween(300))
                                                             onStateChange(TodoBoxState.HIDDEN, isPortrait)
                                                         } else {
@@ -810,7 +816,7 @@ fun TodoBoxContent(
                                                 // 阈值 7%
                                                 if (dragOffsetX.value > screenWidthPx * 0.07f) {
                                                     // 触发收回
-                                                    dragOffsetX.snapTo(0f) // 重置内部偏移
+                                                    dragOffsetX.animateTo(0f, tween(200)) // 快速归位
                                                     onStateChange(TodoBoxState.NORMAL, isPortrait)
                                                 } else {
                                                     // 回弹
